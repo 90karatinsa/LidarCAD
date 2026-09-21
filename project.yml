@@ -1,0 +1,31 @@
+# Yedek plan: LidarCAD.xcodeproj bozulursa `brew install xcodegen && xcodegen`
+# ile yeniden üretin. Normalde gerek yok — hazır .xcodeproj repoda var.
+name: LidarCAD
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+targets:
+  LidarCAD:
+    type: application
+    platform: iOS
+    sources:
+      - LidarCAD
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.LidarCAD
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        ENABLE_PREVIEWS: YES
+        INFOPLIST_KEY_NSCameraUsageDescription: "LiDAR ile 3B tarama yapabilmek icin kamera erisimi gerekiyor."
+        INFOPLIST_KEY_UIFileSharingEnabled: YES
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleLightContent
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
