@@ -59,6 +59,14 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
         didSet { applyDebugOptions() }
     }
 
+    /// Bölge modunda taramayı sınırlayan kutu. nil ise kırpma yapılmaz.
+    @Published private(set) var cropBox: CropBox?
+    /// Kutunun kenar uzunluğu, metre.
+    @Published var cropSize: Float = 0.4 {
+        didSet { if cropBox != nil { refreshCropBoxEntity() } }
+    }
+    private(set) var kind: ScanKind = .space
+
     @Published var capturePointCloud = true {
         didSet {
             let enabled = capturePointCloud
@@ -70,7 +78,8 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
 
     private let work = DispatchQueue(label: "com.lidarcad.session", qos: .userInitiated)
     private var meshAnchors: [UUID: ARMeshAnchor] = [:]
-    private let cloud = PointCloudAccumulator(voxelSize: 0.01, maxPoints: 4_000_000)
+    private var cloud = PointCloudAccumulator(voxelSize: 0.01, maxPoints: 4_000_000)
+    private var cropBoxAnchor: AnchorEntity?
     private var pointCloudEnabled = true
     private var isCapturing = false
     private var frameCounter = 0
@@ -81,10 +90,15 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
 
     // MARK: - Kontrol
 
-    func start() {
+    func start(kind: ScanKind = .space) {
+        self.kind = kind
         errorMessage = nil
         trackingHint = nil
         stats = Stats()
+        removeCropBoxEntity()
+        cropBox = nil
+
+        let voxel = kind.cloudVoxelSize
 
         let config = ARWorldTrackingConfiguration()
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
@@ -108,7 +122,13 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
         work.async { [weak self] in
             guard let self else { return }
             self.meshAnchors.removeAll()
-            self.cloud.reset()
+            // Bölge modunda daha sık örnekleme istiyoruz; biriktiriciyi
+            // voxel boyu değiştiğinde yeniden kuruyoruz.
+            if self.cloud.voxelSize != voxel {
+                self.cloud = PointCloudAccumulator(voxelSize: voxel, maxPoints: 4_000_000)
+            } else {
+                self.cloud.reset()
+            }
             self.frameCounter = 0
             self.isCapturing = true
         }
@@ -122,12 +142,17 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
         guard phase == .scanning else { return }
         phase = .processing
         session.pause()
+        let box = cropBox
 
         work.async { [weak self] in
             guard let self else { return }
             self.isCapturing = false
-            let mesh = ARMeshExtractor.snapshot(anchors: Array(self.meshAnchors.values))
-            let snapshot = self.cloud.snapshot()
+            var mesh = ARMeshExtractor.snapshot(anchors: Array(self.meshAnchors.values))
+            var snapshot = self.cloud.snapshot()
+            if let box {
+                mesh = mesh.cropped(to: box)
+                snapshot = snapshot.cropped(to: box)
+            }
             DispatchQueue.main.async {
                 self.capturedMesh = mesh
                 self.capturedCloud = snapshot
@@ -139,13 +164,59 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
     func newScan() {
         capturedMesh = MeshData()
         capturedCloud = CloudSnapshot()
-        start()
+        start(kind: kind)
     }
 
     func pause() {
         session.pause()
         work.async { [weak self] in self?.isCapturing = false }
         if phase == .scanning { phase = .idle }
+    }
+
+    // MARK: - Kırpma kutusu (bölge modu)
+
+    /// Kutuyu kameranın önüne, bakış yönünde `distance` metre uzağa yerleştirir.
+    func placeCropBox(distance: Float = 0.45) {
+        guard let frame = session.currentFrame else {
+            errorMessage = "Kamera henüz hazır değil, bir saniye bekleyin."
+            return
+        }
+        let transform = frame.camera.transform
+        let origin = SIMD3<Float>(transform.columns.3.x, transform.columns.3.y, transform.columns.3.z)
+        // ARKit kamerası -Z yönüne bakar.
+        let forward = -SIMD3<Float>(transform.columns.2.x, transform.columns.2.y, transform.columns.2.z)
+        cropBox = CropBox(center: origin + forward * distance,
+                          size: SIMD3<Float>(repeating: cropSize))
+        refreshCropBoxEntity()
+    }
+
+    func clearCropBox() {
+        cropBox = nil
+        removeCropBoxEntity()
+    }
+
+    private func refreshCropBoxEntity() {
+        removeCropBoxEntity()
+        guard let cropBox else { return }
+
+        let anchor = AnchorEntity(world: cropBox.center)
+        var material = UnlitMaterial(color: .cyan)
+        material.blending = .transparent(opacity: .init(floatLiteral: 0.18))
+        let box = ModelEntity(
+            mesh: .generateBox(width: cropBox.size.x,
+                               height: cropBox.size.y,
+                               depth: cropBox.size.z),
+            materials: [material])
+        anchor.addChild(box)
+        arView.scene.addAnchor(anchor)
+        cropBoxAnchor = anchor
+    }
+
+    private func removeCropBoxEntity() {
+        if let cropBoxAnchor {
+            arView.scene.removeAnchor(cropBoxAnchor)
+        }
+        cropBoxAnchor = nil
     }
 
     private func applyDebugOptions() {

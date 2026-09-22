@@ -1,9 +1,27 @@
 import SwiftUI
 
 struct ExportView: View {
-    @ObservedObject var scanner: ScanSession
-    @StateObject private var model = ExportModel()
+    let mesh: MeshData
+    let cloud: CloudSnapshot
+    let kind: ScanKind
+    let onNewScan: () -> Void
+    let onChangeMode: () -> Void
+
+    @StateObject private var model: ExportModel
     @State private var showShareSheet = false
+
+    init(mesh: MeshData,
+         cloud: CloudSnapshot,
+         kind: ScanKind,
+         onNewScan: @escaping () -> Void,
+         onChangeMode: @escaping () -> Void) {
+        self.mesh = mesh
+        self.cloud = cloud
+        self.kind = kind
+        self.onNewScan = onNewScan
+        self.onChangeMode = onChangeMode
+        _model = StateObject(wrappedValue: ExportModel(options: kind.defaultOptions))
+    }
 
     var body: some View {
         NavigationStack {
@@ -11,22 +29,25 @@ struct ExportView: View {
                 summarySection
                 targetSection
                 densitySection
-                if ScanSession.hasClassification { surfacesSection }
+                if kind == .space && ScanSession.hasClassification { surfacesSection }
                 alignmentSection
                 sectionsSection
                 formatsSection
                 actionSection
             }
-            .navigationTitle("Dışa aktar")
+            .navigationTitle("Dışa aktar — \(kind.title)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Yeni tarama") { scanner.newScan() }
+                    Button("Yeni tarama", action: onNewScan)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Mod değiştir", action: onChangeMode)
                 }
             }
-            .onAppear { model.refreshPreview(mesh: scanner.capturedMesh, force: true) }
+            .onAppear { model.refreshPreview(mesh: mesh, force: true) }
             .onChange(of: model.options) { _, _ in
-                model.refreshPreview(mesh: scanner.capturedMesh)
+                model.refreshPreview(mesh: mesh)
             }
             .sheet(isPresented: $showShareSheet) {
                 ShareSheet(urls: model.exportedURLs)
@@ -45,12 +66,12 @@ struct ExportView: View {
 
     private var summarySection: some View {
         Section("Tarama") {
-            row("Üçgen", grouped(scanner.capturedMesh.triangleCount))
-            row("Vertex", grouped(scanner.capturedMesh.vertexCount))
-            if !scanner.capturedCloud.isEmpty {
-                row("Nokta bulutu", grouped(scanner.capturedCloud.count))
+            row("Üçgen", grouped(mesh.triangleCount))
+            row("Vertex", grouped(mesh.vertexCount))
+            if !cloud.isEmpty {
+                row("Nokta bulutu", grouped(cloud.count))
             }
-            if let bounds = scanner.capturedMesh.bounds() {
+            if let bounds = mesh.bounds() {
                 let s = bounds.size
                 row("Kapladığı hacim",
                     "\(fixedString(s.x, decimals: 2)) × \(fixedString(s.z, decimals: 2)) × \(fixedString(s.y, decimals: 2)) m")
@@ -161,8 +182,7 @@ struct ExportView: View {
             }
 
             Button {
-                let next = (model.options.sectionHeights.max() ?? 0.7) + 0.5
-                model.options.sectionHeights.append(min(next, 10))
+                model.options.sectionHeights.append(suggestedSectionHeight())
             } label: {
                 Label("Kesit ekle", systemImage: "plus")
             }
@@ -172,6 +192,19 @@ struct ExportView: View {
         } footer: {
             Text("Her yükseklik ayrı bir .dxf dosyası olur. Fusion'da Insert > Insert DXF ile skeç olarak açılır. Kapı/pencere için 1,0–1,2 m tipik bir plan yüksekliğidir.")
         }
+    }
+
+    /// Liste boşken makul bir yükseklik: modelin tam ortası. Bir teyp
+    /// yuvasında 1,2 m'lik varsayılan kesit hiçbir şey kesmez.
+    private func suggestedSectionHeight() -> Float {
+        if let highest = model.options.sectionHeights.max() {
+            return min(highest + 0.5, 10)
+        }
+        if let bounds = mesh.bounds() {
+            // Ham mesh ARKit uzayında (Y yukarı); yükseklik Y ekseninde.
+            return max(0.02, bounds.size.y / 2)
+        }
+        return 0.5
     }
 
     private func safeHeight(_ index: Int) -> Float {
@@ -208,7 +241,7 @@ struct ExportView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .disabled(format == .plyCloud && scanner.capturedCloud.isEmpty)
+                .disabled(format == .plyCloud && cloud.isEmpty)
             }
         }
     }
@@ -218,7 +251,7 @@ struct ExportView: View {
     private var actionSection: some View {
         Section {
             Button {
-                model.export(mesh: scanner.capturedMesh, cloud: scanner.capturedCloud)
+                model.export(mesh: mesh, cloud: cloud)
             } label: {
                 HStack {
                     Spacer()
@@ -235,7 +268,7 @@ struct ExportView: View {
             }
             .disabled(model.isExporting
                       || model.options.formats.isEmpty
-                      || scanner.capturedMesh.isEmpty)
+                      || mesh.isEmpty)
 
             if !model.exportedURLs.isEmpty {
                 ForEach(model.exportedURLs, id: \.self) { url in

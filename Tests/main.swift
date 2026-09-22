@@ -215,6 +215,48 @@ check("zemin altında kesit boş", SectionSlicer.slice(prepared.mesh, atZ: -9999
 let atFloor = SectionSlicer.slice(prepared.mesh, atZ: 0)
 check("düzlem vertex hizasında patlamıyor", atFloor.count < 100, "\(atFloor.count)")
 
+// MARK: - Kırpma kutusu
+
+print("\n[kırpma kutusu]")
+// 2 x 2.5 x 3 m kutunun tam ortasında 1 m'lik bir kırpma kutusu
+let boxCenter = box.bounds()!.center
+let crop = CropBox(center: boxCenter, size: SIMD3<Float>(repeating: 1.0))
+check("merkez içeride", crop.contains(boxCenter))
+check("uzak nokta dışarıda", !crop.contains(boxCenter + SIMD3<Float>(5, 0, 0)))
+check("tam köşe sınırda içeride", crop.contains(crop.maximum))
+
+let croppedAll = box.cropped(to: CropBox(center: boxCenter, size: SIMD3<Float>(repeating: 100)))
+check("devasa kutu her şeyi tutar", croppedAll.triangleCount == box.triangleCount)
+let croppedNone = box.cropped(to: CropBox(center: boxCenter + SIMD3<Float>(100, 0, 0),
+                                          size: SIMD3<Float>(repeating: 1)))
+check("uzaktaki kutu hiçbir şey tutmaz", croppedNone.isEmpty, "\(croppedNone.triangleCount)")
+
+// Izgara düzlemi (1x1 m) yarım metrelik kutuyla kırp
+let gridCenter = grid.bounds()!.center
+let half = grid.cropped(to: CropBox(center: gridCenter, size: SIMD3<Float>(0.5, 10, 0.5)))
+check("kırpma üçgen sayısını azalttı", half.triangleCount < grid.triangleCount && half.triangleCount > 0,
+      "\(grid.triangleCount) -> \(half.triangleCount)")
+check("kırpma sonrası indisler geçerli", half.indices.allSatisfy { Int($0) < half.vertexCount })
+check("kırpma öksüz vertex bırakmadı", Set(half.indices).count == half.vertexCount,
+      "\(Set(half.indices).count) / \(half.vertexCount)")
+check("faceClasses senkron", half.faceClasses.count == half.triangleCount)
+if let hb = half.bounds() {
+    // Üçgen merkezine göre kırptığımız için kenarda en fazla bir üçgen taşar
+    check("sınırlar kutuya yakın", hb.size.x <= 0.55 && hb.size.z <= 0.55, "\(hb.size)")
+}
+
+var cloudToCrop = CloudSnapshot()
+for i in 0..<200 {
+    cloudToCrop.positions.append(SIMD3<Float>(Float(i) * 0.01, 0, 0))
+    cloudToCrop.colors.append(SIMD3<UInt8>(1, 2, 3))
+}
+let croppedCloud = cloudToCrop.cropped(to: CropBox(center: SIMD3<Float>(0.5, 0, 0),
+                                                   size: SIMD3<Float>(0.2, 1, 1)))
+check("bulut kırpıldı", croppedCloud.count > 0 && croppedCloud.count < 200, "\(croppedCloud.count)")
+check("bulut renkleri senkron", croppedCloud.colors.count == croppedCloud.positions.count)
+check("kırpılan noktalar kutuda",
+      croppedCloud.positions.allSatisfy { $0.x >= 0.4 - 1e-5 && $0.x <= 0.6 + 1e-5 })
+
 // MARK: - OBJ
 
 print("\n[OBJ]")

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ScanView: View {
     @ObservedObject var scanner: ScanSession
+    let onCancel: () -> Void
 
     var body: some View {
         ZStack {
@@ -34,6 +35,17 @@ struct ScanView: View {
 
     private var topBar: some View {
         VStack(spacing: 8) {
+            HStack {
+                Button(role: .cancel, action: onCancel) { Image(systemName: "xmark") }
+                    .buttonStyle(.bordered)
+                    .clipShape(Circle())
+                Spacer()
+                Text(scanner.kind.title)
+                    .font(.footnote.weight(.semibold))
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(.ultraThinMaterial, in: Capsule())
+            }
+
             if scanner.phase == .scanning {
                 HStack(spacing: 14) {
                     stat("triangle", grouped(scanner.stats.triangles), "üçgen")
@@ -87,7 +99,9 @@ struct ScanView: View {
         case .idle, .scanning:
             VStack(spacing: 12) {
                 if scanner.stats.triangles == 0 {
-                    Text("Telefonu yüzeyden 0,5–5 m uzakta tutun, yavaş hareket edin ve tur atıp başladığınız noktaya dönün.")
+                    Text(scanner.kind == .region
+                         ? "Yuvayı kadraja alın, kutuyu yerleştirin ve sadece o bölgeyi yavaşça tarayın."
+                         : "Telefonu yüzeyden 0,5–5 m uzakta tutun, yavaş hareket edin ve tur atıp başladığınız noktaya dönün.")
                         .font(.footnote)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 14)
@@ -95,6 +109,8 @@ struct ScanView: View {
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
                         .padding(.horizontal, 16)
                 }
+
+                if scanner.kind == .region { cropBoxControls }
 
                 HStack(spacing: 10) {
                     Toggle(isOn: $scanner.showMeshOverlay) {
@@ -119,12 +135,62 @@ struct ScanView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
                 .controlSize(.large)
-                .disabled(scanner.stats.triangles == 0)
+                .disabled(scanner.stats.triangles == 0
+                          || (scanner.kind == .region && scanner.cropBox == nil))
             }
             .padding(.bottom, 8)
 
         case .processing, .review:
             EmptyView()
+        }
+    }
+
+    // MARK: - Kırpma kutusu (bölge modu)
+
+    @ViewBuilder
+    private var cropBoxControls: some View {
+        VStack(spacing: 8) {
+            if scanner.cropBox == nil {
+                Text("Kutuyu yuvanın ortasına doğrultup yerleştirin — dışında kalan her şey atılır.")
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                Button {
+                    scanner.placeCropBox()
+                } label: {
+                    Label("Kutuyu yerleştir", systemImage: "viewfinder.rectangular")
+                        .font(.subheadline)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.cyan)
+            } else {
+                HStack(spacing: 10) {
+                    Text("Kutu").font(.caption)
+                    Slider(value: $scanner.cropSize, in: 0.1...1.5, step: 0.05)
+                    Text("\(Int(scanner.cropSize * 100)) cm")
+                        .font(.caption.monospacedDigit())
+                        .frame(width: 52, alignment: .trailing)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+
+                HStack(spacing: 10) {
+                    Button {
+                        scanner.placeCropBox()
+                    } label: {
+                        Label("Yeniden konumla", systemImage: "arrow.counterclockwise")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    Button(role: .destructive) {
+                        scanner.clearCropBox()
+                    } label: {
+                        Label("Kaldır", systemImage: "trash").font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
         }
     }
 }

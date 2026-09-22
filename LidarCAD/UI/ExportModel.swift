@@ -4,8 +4,12 @@ import SwiftUI
 @MainActor
 final class ExportModel: ObservableObject {
 
-    @Published var options = ExportOptions() {
+    @Published var options: ExportOptions {
         didSet { if options != oldValue { previewNeedsRefresh = true } }
+    }
+
+    init(options: ExportOptions = ExportOptions()) {
+        self.options = options
     }
 
     @Published private(set) var previewTriangles: Int?

@@ -9,6 +9,8 @@ swiftc -O -swift-version 5 -o "$OUT/verify" \
   LidarCAD/Core/Decimator.swift \
   LidarCAD/Core/SectionSlicer.swift \
   LidarCAD/Core/WallAligner.swift \
+  LidarCAD/Core/CropBox.swift \
+  LidarCAD/Core/ScanKind.swift \
   LidarCAD/Core/PointCloud.swift \
   LidarCAD/Core/ExportPipeline.swift \
   LidarCAD/Core/Writers/BinaryBuffer.swift \

@@ -3,39 +3,54 @@ import UIKit
 
 struct ContentView: View {
     @StateObject private var scanner = ScanSession()
+    @StateObject private var objectCapture = ObjectCaptureController()
+    @State private var kind: ScanKind?
 
     var body: some View {
         Group {
-            if ScanSession.isSupported {
+            switch kind {
+            case nil:
+                ModeSelectView { selected in
+                    kind = selected
+                    switch selected {
+                    case .space, .region: scanner.start(kind: selected)
+                    case .object:         objectCapture.begin()
+                    }
+                }
+
+            case .space, .region:
                 switch scanner.phase {
                 case .idle, .scanning, .processing:
-                    ScanView(scanner: scanner)
+                    ScanView(scanner: scanner, onCancel: backToModes)
                 case .review:
-                    ExportView(scanner: scanner)
+                    ExportView(mesh: scanner.capturedMesh,
+                               cloud: scanner.capturedCloud,
+                               kind: scanner.kind,
+                               onNewScan: { scanner.newScan() },
+                               onChangeMode: backToModes)
                 }
-            } else {
-                UnsupportedView()
+
+            case .object:
+                if case .done = objectCapture.stage {
+                    ExportView(mesh: objectCapture.mesh,
+                               cloud: CloudSnapshot(),
+                               kind: .object,
+                               onNewScan: { objectCapture.begin() },
+                               onChangeMode: backToModes)
+                } else {
+                    ObjectScanView(controller: objectCapture, onCancel: backToModes)
+                }
             }
         }
+        .preferredColorScheme(.dark)
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
     }
-}
 
-struct UnsupportedView: View {
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 48))
-                .foregroundStyle(.orange)
-            Text("LiDAR bulunamadı")
-                .font(.title2.bold())
-            Text("Bu uygulama LiDAR tarayıcılı bir cihaz gerektirir: iPhone 12 Pro ve sonrası Pro/Pro Max modelleri veya iPad Pro 2020+.\n\nSimülatörde çalışmaz — gerçek cihazda deneyin.")
-                .font(.callout)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-        }
-        .padding(32)
+    private func backToModes() {
+        scanner.pause()
+        objectCapture.cancel()
+        kind = nil
     }
 }
 
