@@ -1,170 +1,144 @@
-# LidarCAD
+# LidarCAD — iPhone LiDAR 3D Scanner to CAD (Fusion 360, DXF, STL, OBJ, PLY)
 
-iPhone'un LiDAR tarayıcısıyla bir mekânı, bir bölgeyi ya da bir nesneyi tarayıp
-sonucu **Fusion 360'a sokulabilir** dosyalara çeviren iOS uygulaması.
+**An iOS app that turns iPhone / iPad LiDAR scans into CAD-ready files.** Scan a room, a small region such as a mounting
+recess, or a single object, and export clean, metric, axis-aligned geometry for **Autodesk Fusion 360**, Blender, MeshLab,
+CloudCompare, Rhino or 3D printing. Everything is processed on the device.
 
-*LidarCAD turns iPhone LiDAR scans of rooms, regions and objects into CAD-ready
-OBJ, STL, PLY and DXF files for Fusion 360. Turkish UI; the code comments are
-in Turkish too.*
+**Keywords:** iPhone LiDAR scanner, 3D scanning app, LiDAR to CAD, scan to CAD, reverse engineering, photogrammetry,
+Apple Object Capture, ARKit scene reconstruction, RealityKit, mesh export, point cloud, DXF section, floor plan from scan,
+room scanning, STL for 3D printing, OBJ, PLY, Fusion 360 workflow, SwiftUI, Swift, iOS 17, iPhone Pro, iPad Pro.
 
-Fark yaratan kısım dışa aktarma tarafı: ham ARKit mesh'ini Fusion'a atmak işe
-yaramaz, çok yoğun, eğri ve yanlış birimde gelir. LidarCAD taramayı sadeleştirir,
-duvarları eksenlere oturtur, zemini Z=0'a taşır, milimetreye çevirir ve istenen
-yükseklikten **DXF kesit** çıkarır. Kesit Fusion'da doğrudan skeç olarak açılır.
+Raw ARKit meshes are a poor fit for CAD: too dense, rotated arbitrarily and in the wrong units. LidarCAD simplifies the mesh,
+snaps walls to the X/Y axes, moves the floor to Z = 0, converts to millimetres and slices **DXF cross-sections** at any
+height. A DXF section opens directly as a sketch in Fusion 360.
 
-## Üç tarama kipi
+## Three scan modes
 
-| Kip | Ne için | Nasıl çalışır | Varsayılan çıktı |
+| Mode | For | How it works | Default export |
 |---|---|---|---|
-| **Mekân** | Oda, koridor, mağara, cephe | ARKit sahne rekonstrüksiyonu, hacmin tamamı | Orta sadeleştirme, duvar hizalama, 1,2 m plan kesiti, OBJ + STL + DXF |
-| **Bölge** | Yuva, girinti, montaj yüzeyi | Kutu yerleştirilir, kutunun dışında kalan her şey atılır | İnce sadeleştirme, duvar hizalama kapalı, 5 mm nokta bulutu, OBJ + STL + DXF + PLY |
-| **Nesne** | Serbest duran tekil parça | Apple Object Capture ile fotogrametri; etrafında tur atılır, model cihazda oluşur | İnce sadeleştirme, OBJ + STL |
+| **Space** | Rooms, corridors, caves, façades | ARKit scene reconstruction of the whole volume | Medium simplification, wall alignment, 1.2 m floor-plan section, OBJ + STL + DXF |
+| **Region** | Recesses, slots, mounting surfaces | Place a crop box; everything outside it is discarded | Fine simplification, no wall alignment, 5 mm point cloud, OBJ + STL + DXF + PLY |
+| **Object** | A single free-standing part | Apple Object Capture photogrammetry; walk around the object, the model is reconstructed on device | Fine simplification, OBJ + STL |
 
-Üç kip aynı dışa aktarma hattını paylaşır; yalnızca varsayılanları farklıdır.
-Bir odada duvar hizalama ve plan kesiti anlamlıdır, torpidodaki bir teyp
-yuvasında değildir.
+All three modes share one export pipeline; only the defaults differ.
 
-## Gereksinimler
+## Requirements
 
-- LiDAR'lı iPhone ya da iPad (Pro modeller). iPhone 16 Pro ile geliştirildi.
-  Simülatörde LiDAR yoktur, gerçek cihaz gerekir.
-- iOS 17 ve üstü. Nesne kipi Apple Object Capture'ı kullanır, o da iOS 17 ister.
-- Derlemek için Mac'te Xcode. Proje Xcode 27 ile derlenmiştir; ücretsiz Apple ID
-  yeterlidir.
+- iPhone or iPad with LiDAR (Pro models). Developed on iPhone 16 Pro. The simulator has no LiDAR.
+- iOS 17 or later (Object Capture requires iOS 17).
+- Xcode on a Mac to build (built with Xcode 27). A free Apple ID is enough.
+- No third-party dependencies: only ARKit, RealityKit, Object Capture, SwiftUI and simd.
 
-## Kurulum ve çalıştırma
+## Build and run
 
-1. `LidarCAD.xcodeproj` dosyasını Xcode'da açın.
-2. Sol panelde **LidarCAD** hedefi, **Signing & Capabilities** sekmesi:
-   **Team** olarak kendi Apple ID'nizi seçin ve **Bundle Identifier**'ı
-   `com.<adiniz>.LidarCAD` gibi benzersiz bir değerle değiştirin.
-3. iPhone'u kabloyla bağlayın, üstteki hedef listesinden seçin, ⌘R.
-4. İlk çalıştırmada telefonda **Ayarlar → Genel → VPN ve Cihaz Yönetimi**
-   altından geliştirici sertifikanıza güvenin.
+1. Open `LidarCAD.xcodeproj` in Xcode.
+2. Select the **LidarCAD** target → **Signing & Capabilities**: choose your Apple ID as **Team** and change the
+   **Bundle Identifier** to something unique, e.g. `com.<yourname>.LidarCAD`.
+3. Connect the iPhone, select it as the run destination, press ⌘R.
+4. On first launch, trust your developer certificate on the phone: **Settings → General → VPN & Device Management**.
 
-> Ücretsiz Apple ID ile imzalanan uygulama 7 gün sonra açılmaz; yeniden ⌘R
-> yapmak yeter. Ücretli Apple Developer hesabıyla imza bir yıl geçerlidir.
+> Apps signed with a free Apple ID stop opening after 7 days; press ⌘R again to renew. A paid Apple Developer account signs for one year.
 
-`project.yml` yedek plandır: `.xcodeproj` bozulursa `brew install xcodegen && xcodegen`
-ile yeniden üretilir.
+`project.yml` is a fallback: if the `.xcodeproj` breaks, regenerate it with `brew install xcodegen && xcodegen`.
 
-## Kullanım
+## Usage
 
-**Mekân:** Tarama açılışta başlar, mesh canlı olarak görüntünün üstüne çizilir.
-Telefonu yüzeyden 0,5 ile 5 m arasında tutun, yavaş hareket edin. Tur atıp
-başladığınız noktaya geri dönün; bu, biriken kaymayı ciddi ölçüde kapatır.
-**Bitir** ile dışa aktarma ekranına geçilir.
+**Space:** scanning starts immediately and the mesh is drawn live over the camera image. Keep 0.5–5 m from surfaces and move
+slowly. Finish where you started to close accumulated drift. Tap **Bitir** (Finish) to open the export screen.
 
-**Bölge:** Hedefi kadraja alıp **Kutuyu yerleştir** deyin; kutu 45 cm önünüze
-düşer. Kaydırıcıyla boyutu 10 ile 150 cm arasında ayarlayın, hedefi biraz taşacak
-kadar. Yavaşça tarayın; koltuk, direksiyon, cam gibi kutu dışındaki her şey atılır.
-Kesit eklediğinizde uygulama modelin orta yüksekliğini önerir.
+**Region:** frame the target and tap **Kutuyu yerleştir** (Place box); the box drops 45 cm in front of you. Resize it between 10 and 150 cm so it
+slightly overlaps the target. Scan slowly; anything outside the box is thrown away. When you add a section, the app suggests the
+model's mid-height.
 
-**Nesne:** Kılavuzlu akış: nesneyi algıla, kutuyu onayla, etrafında tur at,
-istenirse nesneyi ters çevirip alt yüzey için ikinci tur, bitir. Model cihazda
-oluşturulur ve birkaç dakika sürer. Nesnenin dokusu olmalı ve ortam iyi
-aydınlatılmış olmalı; parlak metal, cam ve düz beyaz yüzeyler çıkmaz. Bunlara
-mat sprey ya da pudra atmak standart çözümdür.
+**Object:** guided flow: detect the object, confirm the bounding box, walk around it, optionally flip it for a second pass of the
+underside, finish. Reconstruction runs on device and takes a few minutes. The object needs texture and good lighting; shiny metal,
+glass and plain white surfaces fail, and a matte spray or powder is the usual fix.
 
-## Dışa aktarma seçenekleri
+## Export options
 
-| Ayar | Seçenekler | Fusion 360 için |
+| Setting | Choices | For Fusion 360 |
 |---|---|---|
-| Birim | m, cm, mm | **mm** |
-| Yukarı eksen | Y yukarı, Z yukarı | **Z yukarı** |
-| Sadeleştirme | Ham, İnce 1,2 cm, Orta 3 cm, Kaba 6 cm | Convert Mesh için **Kaba** |
-| Duvarları eksenlere oturt | açık / kapalı | Mekânda **açık** |
-| Zemini Z=0'a taşı | açık / kapalı | **Açık** |
-| Kesit yükseklikleri | istenen sayıda, her biri ayrı DXF | Kapı ve pencere için 1,0 ile 1,2 m |
-| Format | OBJ, STL, PLY mesh, PLY nokta bulutu, DXF | **DXF + OBJ** |
+| Unit | m, cm, mm | **mm** |
+| Up axis | Y-up, Z-up | **Z-up** |
+| Simplification | Raw, Fine 1.2 cm, Medium 3 cm, Coarse 6 cm | **Coarse** for Convert Mesh |
+| Align walls to axes | on / off | **On** for rooms |
+| Move floor to Z = 0 | on / off | **On** |
+| Section heights | any number, one DXF each | 1.0–1.2 m for doors and windows |
+| Format | OBJ, STL, PLY mesh, PLY point cloud, DXF | **DXF + OBJ** |
 
-İşlem sırası sabittir: yüzey sınıfı filtresi → sadeleştirme → eksen çevrimi →
-duvar hizalama → zemine oturtma → birim ölçekleme. Seçenekler değiştikçe
-ekranda kaç üçgen çıkacağı gösterilir; Fusion'ın Convert Mesh sınırına
-takılmamak için dışa aktarmadan önce bilmek gerekir.
+Processing order is fixed: surface-class filter → simplification (vertex clustering) → axis conversion → wall alignment →
+floor recentering → unit scaling. The export screen shows the resulting triangle count so you stay under Fusion's Convert Mesh limit.
 
-### Neden DXF?
+### Why DXF?
 
-Gürültülü bir tarama mesh'ini katı modele çevirmeye çalışmak genelde hüsranla
-biter. Profesyonel iş akışı taramayı **referans** olarak kullanmaktır:
+Turning a noisy scan mesh into a solid body rarely works. The professional workflow uses the scan as a **reference**:
 
-1. Fusion'da `Insert → Insert DXF`, bir düzlem seçin.
-2. Kesit skeç olarak gelir.
-3. Üstünden ölçülendirilmiş, temiz geometri çizin.
+1. In Fusion 360, `Insert → Insert DXF` and pick a plane.
+2. The section arrives as a sketch.
+3. Draw clean, dimensioned geometry on top of it.
 
-### Diğer formatlar
+### Other formats
 
-- **OBJ / STL:** `Insert → Insert Mesh`. Unit Type'ı dışa aktarma birimiyle aynı
-  seçin. STL birimsizdir, daima mm olarak okunur.
-- **PLY (mesh):** MeshLab'de delik kapatma, Poisson rekonstrüksiyonu.
-- **PLY (nokta bulutu):** CloudCompare, Rhino. Mesh'ten daha keskindir; ölçü
-  almak ve kendi kesitlerinizi çıkarmak için. Bölge kipinde 5 mm, diğerlerinde
-  1 cm voxel.
+- **OBJ / STL:** `Insert → Insert Mesh`; match the unit type. STL is unitless and always read as mm.
+- **PLY mesh:** hole filling and Poisson reconstruction in MeshLab.
+- **PLY point cloud:** CloudCompare, Rhino. Sharper than the mesh; best for measuring and custom sections.
+  Voxel size is 5 mm in Region mode and 1 cm otherwise.
 
-## Dosyaları Mac'e alma
+## Getting files to a computer
 
-Dışa aktarma ekranındaki **Paylaş / AirDrop**, ya da Dosyalar uygulaması →
-*Benim iPhone'umda* → *LidarCAD* → *Scans*; Mac'te Finder → iPhone → Dosyalar.
-Her taramanın klasöründe `OKUBENI.txt` vardır: ölçüler, uygulanan dönüş açısı
-ve Fusion'a alma adımları.
+Use **Share / AirDrop** on the export screen, or the Files app → *On My iPhone* → *LidarCAD* → *Scans*; on a Mac, Finder → iPhone → Files.
+Each scan folder includes `OKUBENI.txt` with dimensions, the applied rotation and import steps.
 
-## Doğruluk hakkında
+## Accuracy
 
-iPhone LiDAR'ı oda ölçeğinde tipik olarak **1 ile 2 cm** sapar, uzun
-koridorlarda kayma birikir. Fotogrametri daha iyidir ama garanti değildir.
-Tarama size **şekli ve bağlamı** verir, ölçüyü değil.
+iPhone LiDAR typically deviates **1–2 cm** at room scale, and drift accumulates along long corridors. Photogrammetry is better but
+not guaranteed. A scan gives you **shape and context, not final dimensions.**
 
-- Oturacak bir parça çiziyorsanız kritik ölçüleri (yuva genişliği, vida
-  aralığı, derinlik) kumpasla alın ve Fusion'da düzeltin; ince bir test
-  baskısıyla deneyin.
-- Taramada bilinen bir ölçü bırakın (kapı genişliği, bir metre); Fusion'da
-  `Inspect → Measure` ile doğrulayın, sapma varsa `Scale` uygulayın.
-- Cam, ayna ve parlak siyah yüzeyler taranmaz; o bölgeleri elle çizin.
-- Güneş altında LiDAR bozulur.
+- For parts that must fit, measure critical dimensions with calipers and correct them in CAD; verify with a thin test print.
+- Leave a known dimension in the scan (a door width, a metre stick); check with `Inspect → Measure` and apply `Scale` if needed.
+- Glass, mirrors and glossy black surfaces do not scan; draw those areas by hand.
+- LiDAR degrades in direct sunlight.
 
-## Proje yapısı
+## Project structure
 
 ```
 LidarCAD/
-├── Core/              ARKit'e bağımsız; macOS'ta derlenip test edilir
-│   ├── Geometry.swift          mesh tipleri, birim ve eksen dönüşümü
-│   ├── Decimator.swift         vertex-clustering sadeleştirme, O(n)
-│   ├── WallAligner.swift       baskın duvar yönüne "Manhattan" hizalama
-│   ├── SectionSlicer.swift     düzlem-mesh kesişimi, yatay ve dikey kesit
-│   ├── CropBox.swift           bölge kipinin kırpma kutusu
-│   ├── PointCloud.swift        voxel-hash nokta bulutu biriktirici
-│   ├── ScanKind.swift          üç kip ve varsayılanları
-│   ├── ExportPipeline.swift    seçenekler ve dönüşüm sırası
-│   └── Writers/                OBJ, STL, PLY, DXF
-├── Scanning/          ARKit ve RealityKit katmanı
-│   ├── ScanSession.swift             oturum, anchor toplama, derinlik kareleri
+├── Core/              ARKit-independent; compiled and tested on macOS
+│   ├── Geometry.swift          mesh types, unit and axis conversion
+│   ├── Decimator.swift         O(n) vertex-clustering simplification
+│   ├── WallAligner.swift       "Manhattan" alignment to the dominant wall direction
+│   ├── SectionSlicer.swift     plane–mesh intersection, horizontal and vertical sections
+│   ├── CropBox.swift           crop box for Region mode
+│   ├── PointCloud.swift        voxel-hash point cloud accumulator
+│   ├── ScanKind.swift          scan modes and their defaults
+│   ├── ExportPipeline.swift    options and transform order
+│   └── Writers/                OBJ, STL, PLY, DXF writers
+├── Scanning/          ARKit and RealityKit layer
+│   ├── ScanSession.swift             AR session, mesh anchors, depth frames
 │   ├── ARMeshExtraction.swift        ARMeshAnchor → MeshData
-│   ├── DepthUnprojector.swift        derinlik haritası → renkli noktalar
-│   ├── ObjectCaptureController.swift Object Capture sarmalayıcısı
-│   └── RealityMeshExtractor.swift    Object Capture modelinden mesh
-├── Export/            dosya yazımı ve OKUBENI.txt
-└── UI/                SwiftUI: kip seçimi, tarama, nesne akışı, dışa aktarma
-Tests/                 macOS doğrulama koşucusu
+│   ├── DepthUnprojector.swift        depth map → coloured points
+│   ├── ObjectCaptureController.swift Object Capture wrapper
+│   └── RealityMeshExtractor.swift    mesh from the Object Capture model
+├── Export/            file writing and the per-scan readme
+└── UI/                SwiftUI: mode picker, scanning, object flow, export
+Tests/                 macOS verification runner
 ```
 
-## Testler
+## Tests
 
-`Core` ve `Export` katmanları ARKit'e dokunmaz; Xcode'suz, doğrudan macOS'ta
-koşar:
+`Core` and `Export` do not touch ARKit, so they run directly on macOS without Xcode:
 
 ```bash
 ./Tests/run.sh
 ```
 
-98 kontrol: birim dönüşümü, eksen çevriminin sağ el sistemini koruması,
-sadeleştirmede dejenere üçgen kalmaması, duvar hizalamanın eğik odayı düzeltmesi,
-kırpma kutusu, kesit çevresinin doğru çıkması, OBJ/STL/PLY/DXF'in bayt düzeyinde
-format uyumu.
+98 checks: unit conversion, right-handedness of the axis swap, no degenerate triangles after simplification, wall alignment of a
+skewed room, crop box, section perimeter, and byte-level format conformance of OBJ, STL, PLY and DXF.
 
-## Lisans
+The app UI and code comments are in Turkish.
 
-Bu proje [PolyForm Noncommercial 1.0.0](LICENSE) ile lisanslıdır: kaynak kodu
-görülebilir, kişisel ve ticari olmayan amaçlarla kullanılıp değiştirilebilir;
-ticari kullanım için yazarla iletişime geçin. Uygulama yalnızca Apple'ın
-ARKit, RealityKit ve Object Capture çerçevelerini kullanır, üçüncü taraf
-bağımlılığı yoktur.
+## License
+
+Source-available under the **PolyForm Noncommercial License 1.0.0** (see [LICENSE](LICENSE)): free for personal, educational and
+research use. **Commercial use requires written permission.** The app uses only Apple's ARKit, RealityKit and Object Capture
+frameworks and has no third-party dependencies.
