@@ -1,0 +1,12 @@
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+.build/
+*.xcscmblueprint
+.swiftpm/
+.DS_Store
+
+# Test koşucusunun çıktısı
+verify
