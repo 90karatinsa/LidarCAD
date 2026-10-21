@@ -129,7 +129,7 @@ struct PhotoCaptureView: View {
                         Circle().strokeBorder(.black.opacity(0.2), lineWidth: 3).frame(width: 60, height: 60)
                     }
                 }
-                .disabled(controller.status == .capturing || controller.status == .configuring)
+                .disabled(!canShoot)
 
                 Spacer()
 
@@ -159,6 +159,13 @@ struct PhotoCaptureView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(controller.shotCount < 3)
             }
+        }
+    }
+
+    private var canShoot: Bool {
+        switch controller.status {
+        case .ready, .moving, .settling: return true
+        default: return false
         }
     }
 

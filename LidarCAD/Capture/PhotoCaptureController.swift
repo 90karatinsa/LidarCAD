@@ -55,6 +55,7 @@ final class PhotoCaptureController: NSObject, ObservableObject {
     private var exposureLocked = false
     private var pendingGravity: [Double]?
     private var lastEvent: StillnessDetector.Event = .idle
+    private var runtimeErrorObserver: NSObjectProtocol?
 
     // MARK: - Başlat / bitir
 
@@ -81,6 +82,17 @@ final class PhotoCaptureController: NSObject, ObservableObject {
         } catch {
             status = .failed("Klasör oluşturulamadı: \(error.localizedDescription)")
             return
+        }
+
+        if runtimeErrorObserver == nil {
+            runtimeErrorObserver = NotificationCenter.default.addObserver(
+                forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: .main
+            ) { [weak self] note in
+                let error = note.userInfo?[AVCaptureSessionErrorKey] as? NSError
+                Task { @MainActor in
+                    self?.status = .failed("Kamera hatası: \(error?.localizedDescription ?? "bilinmiyor")")
+                }
+            }
         }
 
         if motion.isDeviceMotionAvailable {
@@ -141,6 +153,19 @@ final class PhotoCaptureController: NSObject, ObservableObject {
             return .success(photoOutput.isDepthDataDeliveryEnabled)
         }
 
+        let result = applyConfiguration(device)
+        guard case .success = result else { return result }
+
+        // startRunning, beginConfiguration/commitConfiguration arasında
+        // çağrılırsa AVFoundation istisna fırlatıp uygulamayı düşürüyor. Bu
+        // yüzden yapılandırma kendi fonksiyonunda bitip commit edildikten
+        // sonra başlatıyoruz (önceki sürümde `defer` commit'i sona itiyordu).
+        self.device = device
+        session.startRunning()
+        return result
+    }
+
+    nonisolated private func applyConfiguration(_ device: AVCaptureDevice) -> SetupResult {
         session.beginConfiguration()
         defer { session.commitConfiguration() }
 
@@ -190,9 +215,6 @@ final class PhotoCaptureController: NSObject, ObservableObject {
 
         photoOutput.maxPhotoQualityPrioritization = .quality
         photoOutput.isDepthDataDeliveryEnabled = photoOutput.isDepthDataDeliverySupported
-
-        self.device = device
-        session.startRunning()
         return .success(photoOutput.isDepthDataDeliveryEnabled)
     }
 
@@ -215,6 +237,16 @@ final class PhotoCaptureController: NSObject, ObservableObject {
         sessionQueue.async { [weak self] in
             guard let self else { return }
             let output = self.photoOutput
+            // Kamera çalışmıyorsa ya da video bağlantısı aktif değilse
+            // capturePhoto istisna fırlatıyor; sessizce vazgeç.
+            guard self.session.isRunning,
+                  output.connection(with: .video)?.isActive == true else {
+                Task { @MainActor in
+                    self.captureInFlight = false
+                    if case .capturing = self.status { self.status = .ready }
+                }
+                return
+            }
             let codec: AVVideoCodecType = output.availablePhotoCodecTypes.contains(.hevc) ? .hevc : .jpeg
             let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: codec])
             settings.isDepthDataDeliveryEnabled = output.isDepthDataDeliveryEnabled
