@@ -102,6 +102,9 @@ private struct CaptureLayer: View {
             stateChangedAt = Date()
             controller.sync(newState)
         }
+        .onChange(of: session.userCompletedScanPass) { _, completed in
+            if !completed { controller.passDidReset() }
+        }
         .onReceive(ticker) { now = $0 }
     }
 
@@ -165,16 +168,24 @@ private struct CaptureLayer: View {
         case .capturing:
             VStack(spacing: 12) {
                 if session.userCompletedScanPass {
-                    hint("Tur tamamlandı. Nesneyi ters çevirip devam ederseniz alt yüzeyi de modele girer.")
+                    let flippable = !session.feedback.contains(.objectNotFlippable)
+                    hint(flippable
+                         ? "Tur tamamlandı. Nesneyi ters çevirip devam ederseniz alt yüzeyi de modele girer."
+                         : "Tur tamamlandı. Bu nesne çevrilmeye uygun değil — farklı yükseklikten bir tur daha atabilir ya da bitirebilirsiniz.")
                     HStack(spacing: 10) {
-                        secondary("Çevirdim, devam", icon: "arrow.triangle.2.circlepath") {
-                            controller.beginNewPassAfterFlip()
+                        if flippable {
+                            secondary("Çevirdim, devam", icon: "arrow.triangle.2.circlepath") {
+                                controller.beginNewPassAfterFlip()
+                            }
+                            .disabled(!controller.canFlip(session))
                         }
                         secondary("Yeni tur", icon: "arrow.clockwise") {
                             controller.beginNewPass()
                         }
+                        .disabled(!controller.canStartNewPass(session))
                     }
                     primary("Bitir ve modeli oluştur", icon: "checkmark") { controller.finish() }
+                        .disabled(controller.passTransitionPending)
                 } else {
                     hint("Nesnenin etrafında yavaşça tam tur atın. Arada yükseklik değiştirin.")
                 }

@@ -26,6 +26,9 @@ final class ObjectCaptureController: ObservableObject {
     @Published private(set) var phase: Phase = .capturing
     @Published private(set) var session: ObjectCaptureSession?
     @Published private(set) var passCount = 0
+    /// Yeni tur isteği gönderildi, oturum henüz `userCompletedScanPass`'i
+    /// sıfırlamadı. Bu aralıkta ikinci bir çağrı Apple'ın ön koşulunu bozuyor.
+    @Published private(set) var passTransitionPending = false
     @Published private(set) var mesh = MeshData()
 
     private var workspace: URL?
@@ -70,6 +73,7 @@ final class ObjectCaptureController: ObservableObject {
     func sync(_ state: ObjectCaptureSession.CaptureState) {
         log.info("durum -> \(String(describing: state), privacy: .public)")
         print("[ObjectCapture] durum -> \(state.label)")
+        if case .capturing = state {} else { passTransitionPending = false }
         switch state {
         case .completed:
             guard phase == .capturing else { return }
@@ -93,21 +97,56 @@ final class ObjectCaptureController: ObservableObject {
 
     func startCapturing() { session?.startCapturing() }
 
+    /// Tur bitti ve oturum yeni bir tura hazır mı.
+    ///
+    /// `beginNewScanPass*` koşullar sağlanmadan çağrılırsa RealityKit içinde
+    /// bir ön koşul kapanıyla (EXC_BREAKPOINT) çöküyor; mesaj vermiyor. Bu
+    /// yüzden çağırmadan önce durumu kendimiz doğruluyoruz.
+    func canStartNewPass(_ session: ObjectCaptureSession) -> Bool {
+        guard case .capturing = session.state else { return false }
+        return session.userCompletedScanPass && !passTransitionPending
+    }
+
+    func canFlip(_ session: ObjectCaptureSession) -> Bool {
+        canStartNewPass(session) && !session.feedback.contains(.objectNotFlippable)
+    }
+
     /// Nesneyi ters çevirip alt yüzeyini de taramak için yeni tur.
     func beginNewPassAfterFlip() {
-        session?.beginNewScanPassAfterFlip()
+        guard let session else { return }
+        logPassCall("flip", session)
+        guard canFlip(session) else { return }
+        passTransitionPending = true
+        session.beginNewScanPassAfterFlip()
         passCount += 1
     }
 
     /// Nesneyi çevirmeden, farklı yükseklikten ikinci tur.
     func beginNewPass() {
-        session?.beginNewScanPass()
+        guard let session else { return }
+        logPassCall("yeni tur", session)
+        guard canStartNewPass(session) else { return }
+        passTransitionPending = true
+        session.beginNewScanPass()
         passCount += 1
+    }
+
+    /// Görünüm, oturum `userCompletedScanPass`'i sıfırladığında çağırır.
+    func passDidReset() {
+        passTransitionPending = false
+    }
+
+    private func logPassCall(_ kind: String, _ session: ObjectCaptureSession) {
+        let feedback = session.feedback.map { String(describing: $0) }.sorted().joined(separator: ",")
+        let line = "\(kind): durum=\(session.state.label) turBitti=\(session.userCompletedScanPass) bekleyen=\(passTransitionPending) geribildirim=[\(feedback)]"
+        log.info("\(line, privacy: .public)")
+        print("[ObjectCapture] \(line)")
     }
 
     func finish() { session?.finish() }
 
     func cancel() {
+        passTransitionPending = false
         reconstructionTask?.cancel()
         reconstructionTask = nil
         session?.cancel()
