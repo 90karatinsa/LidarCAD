@@ -14,7 +14,10 @@ struct ContentView: View {
                     kind = selected
                     switch selected {
                     case .space, .region: scanner.start(kind: selected)
-                    case .object:         objectCapture.begin()
+                    case .object:
+                        // Mekân/Bölge oturumu kamerayı tutuyorsa Object Capture başlayamaz.
+                        scanner.stopIfRunning()
+                        objectCapture.begin()
                     }
                 }
 
@@ -31,7 +34,7 @@ struct ContentView: View {
                 }
 
             case .object:
-                if case .done = objectCapture.stage {
+                if case .done = objectCapture.phase {
                     ExportView(mesh: objectCapture.mesh,
                                cloud: CloudSnapshot(),
                                kind: .object,
@@ -48,7 +51,7 @@ struct ContentView: View {
     }
 
     private func backToModes() {
-        scanner.pause()
+        scanner.stopIfRunning()
         objectCapture.cancel()
         kind = nil
     }

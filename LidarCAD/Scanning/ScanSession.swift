@@ -66,6 +66,9 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
         didSet { if cropBox != nil { refreshCropBoxEntity() } }
     }
     private(set) var kind: ScanKind = .space
+    /// ARSession şu an çalışıyor mu. `stopIfRunning()` gereksiz yere ARView
+    /// yaratmasın diye (arView lazy) ayrıca tutuyoruz.
+    private var isSessionRunning = false
 
     @Published var capturePointCloud = true {
         didSet {
@@ -134,6 +137,7 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
         }
 
         session.run(config, options: [.resetTracking, .removeExistingAnchors])
+        isSessionRunning = true
         applyDebugOptions()
         phase = .scanning
     }
@@ -142,6 +146,7 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
         guard phase == .scanning else { return }
         phase = .processing
         session.pause()
+        isSessionRunning = false
         let box = cropBox
 
         work.async { [weak self] in
@@ -167,8 +172,15 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
         start(kind: kind)
     }
 
+    /// Kamerayı başka bir oturuma (Object Capture) bırakmak için.
+    func stopIfRunning() {
+        guard isSessionRunning else { return }
+        pause()
+    }
+
     func pause() {
         session.pause()
+        isSessionRunning = false
         work.async { [weak self] in self?.isCapturing = false }
         if phase == .scanning { phase = .idle }
     }

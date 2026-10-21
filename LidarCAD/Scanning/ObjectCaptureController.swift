@@ -1,21 +1,19 @@
 import RealityKit
 import SwiftUI
 import Foundation
+import os
 
 /// Apple Object Capture sarmalayıcısı: kılavuzlu çekim + cihaz üstü rekonstrüksiyon.
 ///
-/// LiDAR mesh'i küçük nesneler için fazla kaba kalıyor (derinlik haritası
-/// 256x192). Object Capture fotoğramtetri kullanıp LiDAR'dan yalnızca ölçek
-/// alıyor — CAD için kritik olan doğru boyut böylece korunuyor.
+/// `ObjectCaptureSession` @Observable olduğu için canlı çekim durumunu burada
+/// kopyalamıyoruz — görünüm `session.state`'i doğrudan okuyor. Bu sınıf yalnızca
+/// çekim sonrası aşamaları (rekonstrüksiyon, sonuç, hata) yönetiyor.
 @MainActor
 final class ObjectCaptureController: ObservableObject {
 
-    enum Stage: Equatable {
-        case idle
-        case ready          // nesneye doğrult
-        case detecting      // sınır kutusu ayarlanıyor
+    enum Phase: Equatable {
+        /// Canlı çekim; ayrıntılı durum `session.state` içinde.
         case capturing
-        case finishing
         case reconstructing(Double)
         case done
         case failed(String)
@@ -25,18 +23,15 @@ final class ObjectCaptureController: ObservableObject {
         ObjectCaptureSession.isSupported && PhotogrammetrySession.isSupported
     }
 
-    @Published private(set) var stage: Stage = .idle
+    @Published private(set) var phase: Phase = .capturing
     @Published private(set) var session: ObjectCaptureSession?
-    @Published private(set) var feedback: Set<ObjectCaptureSession.Feedback> = []
-    @Published private(set) var shotsTaken = 0
-    @Published private(set) var maximumShots = 0
-    @Published private(set) var completedPass = false
     @Published private(set) var passCount = 0
     @Published private(set) var mesh = MeshData()
 
     private var workspace: URL?
     private var imagesDirectory: URL?
-    private var observers: [Task<Void, Never>] = []
+    private var reconstructionTask: Task<Void, Never>?
+    private let log = Logger(subsystem: "com.borayunusoglu.LidarCAD", category: "ObjectCapture")
 
     // MARK: - Akış
 
@@ -44,8 +39,7 @@ final class ObjectCaptureController: ObservableObject {
         cleanUp()
         mesh = MeshData()
         passCount = 0
-        completedPass = false
-        shotsTaken = 0
+        phase = .capturing
 
         do {
             let root = FileManager.default.temporaryDirectory
@@ -63,99 +57,72 @@ final class ObjectCaptureController: ObservableObject {
             configuration.checkpointDirectory = checkpoint
             configuration.isOverCaptureEnabled = true
             session.start(imagesDirectory: images, configuration: configuration)
-
             self.session = session
-            self.maximumShots = session.maximumNumberOfInputImages
-            observe(session)
+            log.info("oturum başladı, durum=\(String(describing: session.state), privacy: .public)")
+            print("[ObjectCapture] oturum başladı, durum=\(session.state.label)")
         } catch {
-            stage = .failed(error.localizedDescription)
+            log.error("oturum başlatılamadı: \(error.localizedDescription, privacy: .public)")
+            phase = .failed(error.localizedDescription)
+        }
+    }
+
+    /// Görünüm oturum durumu her değiştiğinde (ve ilk açılışta) çağırır.
+    func sync(_ state: ObjectCaptureSession.CaptureState) {
+        log.info("durum -> \(String(describing: state), privacy: .public)")
+        print("[ObjectCapture] durum -> \(state.label)")
+        switch state {
+        case .completed:
+            guard phase == .capturing else { return }
+            // Kamerayı ve çekim belleğini bırak; rekonstrüksiyon için yalnızca
+            // fotoğraf klasörü gerekiyor ve cihaz üstü işlem belleğe aç.
+            session = nil
+            reconstructionTask = Task { await reconstruct() }
+        case .failed(let error):
+            phase = .failed(error.localizedDescription)
+        default:
+            break
         }
     }
 
     func startDetecting() {
         guard let session else { return }
-        _ = session.startDetecting()
+        if !session.startDetecting() {
+            log.error("startDetecting false döndü")
+        }
     }
 
-    func startCapturing() {
-        session?.startCapturing()
-    }
+    func startCapturing() { session?.startCapturing() }
 
     /// Nesneyi ters çevirip alt yüzeyini de taramak için yeni tur.
     func beginNewPassAfterFlip() {
-        guard let session else { return }
-        session.beginNewScanPassAfterFlip()
+        session?.beginNewScanPassAfterFlip()
         passCount += 1
-        completedPass = false
     }
 
-    /// Nesneyi çevirmeden, aynı duruşta ikinci tur (farklı yükseklikten).
+    /// Nesneyi çevirmeden, farklı yükseklikten ikinci tur.
     func beginNewPass() {
-        guard let session else { return }
-        session.beginNewScanPass()
+        session?.beginNewScanPass()
         passCount += 1
-        completedPass = false
     }
 
-    func finish() {
-        session?.finish()
-    }
+    func finish() { session?.finish() }
 
     func cancel() {
+        reconstructionTask?.cancel()
+        reconstructionTask = nil
         session?.cancel()
         cleanUp()
-        stage = .idle
-    }
-
-    // MARK: - Durum akışları
-
-    private func observe(_ session: ObjectCaptureSession) {
-        observers.append(Task { [weak self] in
-            for await state in session.stateUpdates {
-                guard let self else { return }
-                self.handle(state)
-            }
-        })
-        observers.append(Task { [weak self] in
-            for await value in session.feedbackUpdates { self?.feedback = value }
-        })
-        observers.append(Task { [weak self] in
-            for await value in session.numberOfShotsTakenUpdates { self?.shotsTaken = value }
-        })
-        observers.append(Task { [weak self] in
-            for await value in session.userCompletedScanPassUpdates { self?.completedPass = value }
-        })
-    }
-
-    private func handle(_ state: ObjectCaptureSession.CaptureState) {
-        switch state {
-        case .initializing:
-            stage = .idle
-        case .ready:
-            stage = .ready
-        case .detecting:
-            stage = .detecting
-        case .capturing:
-            stage = .capturing
-        case .finishing:
-            stage = .finishing
-        case .completed:
-            Task { await reconstruct() }
-        case .failed(let error):
-            stage = .failed(error.localizedDescription)
-        @unknown default:
-            break
-        }
+        phase = .capturing
     }
 
     // MARK: - Rekonstrüksiyon
 
     private func reconstruct() async {
         guard let imagesDirectory else {
-            stage = .failed("Fotoğraf klasörü bulunamadı.")
+            phase = .failed("Fotoğraf klasörü bulunamadı.")
             return
         }
-        stage = .reconstructing(0)
+        phase = .reconstructing(0)
 
         do {
             let photogrammetry = try PhotogrammetrySession(input: imagesDirectory)
@@ -163,55 +130,44 @@ final class ObjectCaptureController: ObservableObject {
             try photogrammetry.process(requests: [.modelEntity(detail: .reduced)])
 
             for try await output in photogrammetry.outputs {
+                if Task.isCancelled { return }
                 switch output {
                 case .requestProgress(_, let fraction):
-                    stage = .reconstructing(fraction)
-
+                    phase = .reconstructing(fraction)
                 case .requestComplete(_, let result):
                     if case .modelEntity(let entity) = result {
                         mesh = RealityMeshExtractor.extract(from: entity)
+                        log.info("model: \(self.mesh.triangleCount) üçgen")
                     }
-
                 case .processingComplete:
-                    if mesh.isEmpty {
-                        stage = .failed("Model oluşturulamadı. Nesnenin dokusu yetersiz olabilir.")
-                    } else {
-                        stage = .done
-                    }
+                    phase = mesh.isEmpty
+                        ? .failed("Model oluşturulamadı. Nesnenin dokusu yetersiz olabilir.")
+                        : .done
                     return
-
                 case .requestError(_, let error):
-                    stage = .failed(error.localizedDescription)
+                    phase = .failed(error.localizedDescription)
                     return
-
                 case .processingCancelled:
-                    stage = .failed("İşlem iptal edildi.")
+                    phase = .failed("İşlem iptal edildi.")
                     return
-
                 default:
                     break
                 }
             }
         } catch {
-            stage = .failed(error.localizedDescription)
+            phase = .failed(error.localizedDescription)
         }
     }
 
     // MARK: - Temizlik
 
     private func cleanUp() {
-        observers.forEach { $0.cancel() }
-        observers.removeAll()
         session = nil
         if let workspace {
             try? FileManager.default.removeItem(at: workspace)
         }
         workspace = nil
         imagesDirectory = nil
-    }
-
-    deinit {
-        observers.forEach { $0.cancel() }
     }
 }
 
@@ -228,6 +184,39 @@ extension ObjectCaptureSession.Feedback {
         case .objectNotDetected:     return "Nesne algılanamadı"
         case .overCapturing:         return "Yeterince fotoğraf alındı"
         @unknown default:            return nil
+        }
+    }
+}
+
+extension ObjectCaptureSession.CaptureState {
+    var label: String {
+        switch self {
+        case .initializing: return "başlatılıyor"
+        case .ready:        return "hazır"
+        case .detecting:    return "algılıyor"
+        case .capturing:    return "çekiyor"
+        case .finishing:    return "bitiriyor"
+        case .completed:    return "tamamlandı"
+        case .failed:       return "hata"
+        @unknown default:   return "bilinmiyor"
+        }
+    }
+}
+
+extension ObjectCaptureSession.Tracking {
+    var label: String {
+        switch self {
+        case .normal:       return "normal"
+        case .notAvailable: return "yok"
+        case .limited(let reason):
+            switch reason {
+            case .initializing:         return "sınırlı (başlatılıyor)"
+            case .relocalizing:         return "sınırlı (yeniden konumlanıyor)"
+            case .excessiveMotion:      return "sınırlı (fazla hareket)"
+            case .insufficientFeatures: return "sınırlı (yetersiz doku)"
+            @unknown default:           return "sınırlı"
+            }
+        @unknown default:   return "bilinmiyor"
         }
     }
 }
