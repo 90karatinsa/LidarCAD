@@ -123,12 +123,26 @@ struct ExportView: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 Text(model.options.detail.hint)
+                if let warning = coarsenessWarning {
+                    Text(warning).foregroundStyle(.red)
+                }
                 if let count = model.previewTriangles, count > 50_000 {
                     Text("50.000 üstünde Fusion'ın Convert Mesh komutu çalışmayabilir. Referans olarak kullanacaksanız sorun değil.")
                         .foregroundStyle(.orange)
                 }
             }
         }
+    }
+
+    /// Hücre boyu parçanın en küçük boyutunun ~1/15'inden büyükse detay
+    /// kaybolur: 4 cm'lik parçada 1,2 cm hücre 3 hücre demek.
+    private var coarsenessWarning: String? {
+        let cell = model.options.detail.cellSize
+        guard cell > 0, let b = mesh.bounds() else { return nil }
+        let smallest = min(b.size.x, b.size.y, b.size.z)
+        guard smallest > 0, cell > smallest / 15 else { return nil }
+        let mm = Int((smallest * 1000).rounded())
+        return "Bu sadeleştirme \(mm) mm'lik bir parça için çok kaba: ince detaylar (kanal, diş, flanş) silinir. Parçalar için \"Ham\" seçin."
     }
 
     // MARK: - Yüzeyler

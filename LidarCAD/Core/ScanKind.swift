@@ -83,7 +83,10 @@ enum ScanKind: String, Codable, CaseIterable, Identifiable {
             options.formats = [.obj, .stl, .dxf, .plyCloud]
 
         case .object, .photoSet:
-            options.detail = .fine
+            // Hücreli sadeleştirme oda ölçeği için (1,2–6 cm). 4 cm'lik bir
+            // parçada 1,2 cm hücre modeli 124 üçgene indirip yaka/flanş/dişi
+            // siliyordu. Fotogrametri çıktısı zaten temiz; olduğu gibi veriyoruz.
+            options.detail = .raw
             options.alignToWalls = false
             options.recenterToFloor = true
             options.sectionHeights = []

@@ -19,10 +19,12 @@ height. A DXF section opens directly as a sketch in Fusion 360.
 |---|---|---|---|
 | **Space** | Rooms, corridors, caves, façades | ARKit scene reconstruction of the whole volume | Medium simplification, wall alignment, 1.2 m floor-plan section, OBJ + STL + DXF |
 | **Region** | Recesses, slots, mounting surfaces | Place a crop box; everything outside it is discarded | Fine simplification, no wall alignment, 5 mm point cloud, OBJ + STL + DXF + PLY |
-| **Object** | A single free-standing part | Apple Object Capture photogrammetry; walk around the object, the model is reconstructed on device | Fine simplification, OBJ + STL |
-| **Photo Set** | A part you can't walk around | Phone stays fixed, you turn the object; HEIC photos with embedded LiDAR depth, reconstructed on a Mac by `lidarcad-reconstruct` | Full detail, fine simplification, OBJ + STL |
+| **Object** | A single free-standing part | Apple Object Capture photogrammetry; walk around the object, the model is reconstructed on device | No simplification, OBJ + STL |
+| **Photo Set** | A part you can't walk around | Phone stays fixed, you turn the object; HEIC photos with embedded LiDAR depth, reconstructed on a Mac by `lidarcad-reconstruct` | Full detail, no simplification, OBJ + STL |
 
-All four modes share one export pipeline; only the defaults differ. The Mac tool compiles the same `Core` code, so a Photo Set model
+All four modes share one export pipeline; only the defaults differ. The cell-based simplification levels (1.2 / 3 / 6 cm)
+are sized for rooms; on a small part they erase collars, flanges and threads, so object modes export the mesh as is and the
+export screen warns when a chosen level is too coarse for the part. The Mac tool compiles the same `Core` code, so a Photo Set model
 goes through exactly the same unit, axis and section steps as an on-device scan.
 
 ## Requirements
