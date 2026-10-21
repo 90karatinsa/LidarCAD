@@ -32,9 +32,9 @@ enum ScanKind: String, Codable, CaseIterable, Identifiable {
         case .region:
             return "Bir yuva veya montaj yüzeyi. Kutuyla sınırlarsınız, sadece orası kalır."
         case .object:
-            return "Serbest duran parça. Etrafında tur atılır, fotoğraflardan model çıkar."
+            return "Parça masada sabit durur, telefonu etrafında gezdirirsiniz. Desensiz yüzeylerde de çalışır, kurulum gerekmez."
         case .photoSet:
-            return "Telefon sabit, nesneyi siz döndürürsünüz. Model Mac'te, en yüksek detayla oluşur."
+            return "Gelişmiş: telefon sabit, nesne döner. Desenli nesne, düz arka plan ve dağınık ışık ister; model Mac'te."
         }
     }
 

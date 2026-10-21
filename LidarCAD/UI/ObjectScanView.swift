@@ -155,7 +155,7 @@ private struct CaptureLayer: View {
 
         case .ready:
             VStack(spacing: 12) {
-                hint("Nesneyi ekranın ortasına alın, 20–80 cm mesafede durun.")
+                hint("Parçayı ekranın ortasına alın, 20–80 cm uzakta durun. Parçaya dokunmayın, sadece telefon hareket edecek.")
                 primary("Nesneyi algıla", icon: "viewfinder") { controller.startDetecting() }
             }
 
@@ -187,7 +187,7 @@ private struct CaptureLayer: View {
                     primary("Bitir ve modeli oluştur", icon: "checkmark") { controller.finish() }
                         .disabled(controller.passTransitionPending)
                 } else {
-                    hint("Nesnenin etrafında yavaşça tam tur atın. Arada yükseklik değiştirin.")
+                    hint("Telefonu parçanın etrafında yavaşça tam daire çizerek gezdirin; küçük parçada yürümenize gerek yok, kolunuzla dönmeniz yeter. Arada biraz yukarıdan da bakın.")
                 }
             }
 
