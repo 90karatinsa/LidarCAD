@@ -11,6 +11,7 @@ swiftc -O -swift-version 5 -o "$OUT/verify" \
   LidarCAD/Core/WallAligner.swift \
   LidarCAD/Core/CropBox.swift \
   LidarCAD/Core/ScanKind.swift \
+  LidarCAD/Core/CaptureManifest.swift \
   LidarCAD/Core/PointCloud.swift \
   LidarCAD/Core/ExportPipeline.swift \
   LidarCAD/Core/Writers/BinaryBuffer.swift \
@@ -19,5 +20,6 @@ swiftc -O -swift-version 5 -o "$OUT/verify" \
   LidarCAD/Core/Writers/PLYWriter.swift \
   LidarCAD/Core/Writers/DXFWriter.swift \
   LidarCAD/Export/ExportManager.swift \
+  LidarCAD/Capture/StillnessDetector.swift \
   Tests/main.swift
 "$OUT/verify"

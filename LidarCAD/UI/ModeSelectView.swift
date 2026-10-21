@@ -67,6 +67,7 @@ struct ModeSelectView: View {
         switch kind {
         case .space, .region: return ScanSession.isSupported
         case .object:         return ObjectCaptureController.isSupported
+        case .photoSet:       return PhotoCaptureController.isSupported
         }
     }
 }

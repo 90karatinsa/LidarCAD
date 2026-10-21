@@ -10,6 +10,9 @@ enum ScanKind: String, Codable, CaseIterable, Identifiable {
     case region
     /// Apple Object Capture (fotogrametri) — serbest duran tekil nesne.
     case object
+    /// Telefon sabit, nesne döner; yalnızca fotoğraf çekilir, model Mac'te
+    /// `lidarcad-reconstruct` ile oluşturulur.
+    case photoSet
 
     var id: String { rawValue }
 
@@ -18,6 +21,7 @@ enum ScanKind: String, Codable, CaseIterable, Identifiable {
         case .space:  return "Mekân"
         case .region: return "Bölge"
         case .object: return "Nesne"
+        case .photoSet: return "Fotoğraf seti"
         }
     }
 
@@ -29,6 +33,8 @@ enum ScanKind: String, Codable, CaseIterable, Identifiable {
             return "Bir yuva veya montaj yüzeyi. Kutuyla sınırlarsınız, sadece orası kalır."
         case .object:
             return "Serbest duran parça. Etrafında tur atılır, fotoğraflardan model çıkar."
+        case .photoSet:
+            return "Telefon sabit, nesneyi siz döndürürsünüz. Model Mac'te, en yüksek detayla oluşur."
         }
     }
 
@@ -37,6 +43,7 @@ enum ScanKind: String, Codable, CaseIterable, Identifiable {
         case .space:  return "cube.transparent"
         case .region: return "viewfinder.rectangular"
         case .object: return "rotate.3d"
+        case .photoSet: return "camera.aperture"
         }
     }
 
@@ -46,7 +53,7 @@ enum ScanKind: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .space:  return 0.01
         case .region: return 0.005
-        case .object: return 0.01
+        case .object, .photoSet: return 0.01
         }
     }
 
@@ -75,7 +82,7 @@ enum ScanKind: String, Codable, CaseIterable, Identifiable {
             // Nokta bulutu burada mesh'ten hassas — ölçü almak için şart.
             options.formats = [.obj, .stl, .dxf, .plyCloud]
 
-        case .object:
+        case .object, .photoSet:
             options.detail = .fine
             options.alignToWalls = false
             options.recenterToFloor = true

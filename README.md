@@ -2,32 +2,36 @@
 
 **An iOS app that turns iPhone / iPad LiDAR scans into CAD-ready files.** Scan a room, a small region such as a mounting
 recess, or a single object, and export clean, metric, axis-aligned geometry for **Autodesk Fusion 360**, Blender, MeshLab,
-CloudCompare, Rhino or 3D printing. Everything is processed on the device.
+CloudCompare, Rhino or 3D printing. Everything runs on the device, except Photo Set mode, whose model is built on a Mac at
+higher detail.
 
 **Keywords:** iPhone LiDAR scanner, 3D scanning app, LiDAR to CAD, scan to CAD, reverse engineering, photogrammetry,
-Apple Object Capture, ARKit scene reconstruction, RealityKit, mesh export, point cloud, DXF section, floor plan from scan,
+Apple Object Capture, turntable photogrammetry, ARKit scene reconstruction, RealityKit, mesh export, point cloud, DXF section, floor plan from scan,
 room scanning, STL for 3D printing, OBJ, PLY, Fusion 360 workflow, SwiftUI, Swift, iOS 17, iPhone Pro, iPad Pro.
 
 Raw ARKit meshes are a poor fit for CAD: too dense, rotated arbitrarily and in the wrong units. LidarCAD simplifies the mesh,
 snaps walls to the X/Y axes, moves the floor to Z = 0, converts to millimetres and slices **DXF cross-sections** at any
 height. A DXF section opens directly as a sketch in Fusion 360.
 
-## Three scan modes
+## Four scan modes
 
 | Mode | For | How it works | Default export |
 |---|---|---|---|
 | **Space** | Rooms, corridors, caves, façades | ARKit scene reconstruction of the whole volume | Medium simplification, wall alignment, 1.2 m floor-plan section, OBJ + STL + DXF |
 | **Region** | Recesses, slots, mounting surfaces | Place a crop box; everything outside it is discarded | Fine simplification, no wall alignment, 5 mm point cloud, OBJ + STL + DXF + PLY |
 | **Object** | A single free-standing part | Apple Object Capture photogrammetry; walk around the object, the model is reconstructed on device | Fine simplification, OBJ + STL |
+| **Photo Set** | A part you can't walk around | Phone stays fixed, you turn the object; HEIC photos with embedded LiDAR depth, reconstructed on a Mac by `lidarcad-reconstruct` | Full detail, fine simplification, OBJ + STL |
 
-All three modes share one export pipeline; only the defaults differ.
+All four modes share one export pipeline; only the defaults differ. The Mac tool compiles the same `Core` code, so a Photo Set model
+goes through exactly the same unit, axis and section steps as an on-device scan.
 
 ## Requirements
 
 - iPhone or iPad with LiDAR (Pro models). Developed on iPhone 16 Pro. The simulator has no LiDAR.
 - iOS 17 or later (Object Capture requires iOS 17).
 - Xcode on a Mac to build (built with Xcode 27). A free Apple ID is enough.
-- No third-party dependencies: only ARKit, RealityKit, Object Capture, SwiftUI and simd.
+- Photo Set reconstruction: an Apple Silicon Mac. iOS photogrammetry only offers the `reduced` detail level; macOS offers `full` and `raw`.
+- No third-party dependencies: only ARKit, RealityKit, Object Capture, AVFoundation, Vision, SwiftUI and simd.
 
 ## Build and run
 
@@ -53,6 +57,56 @@ model's mid-height.
 **Object:** guided flow: detect the object, confirm the bounding box, walk around it, optionally flip it for a second pass of the
 underside, finish. Reconstruction runs on device and takes a few minutes. The object needs texture and good lighting; shiny metal,
 glass and plain white surfaces fail, and a matte spray or powder is the usual fix.
+
+**Photo Set:** for objects you can't walk around. Fix the phone on a stand, put the object on something you can turn (a lazy
+susan, a plate, a sheet of card) and rotate it about 10° at a time. Take your hand out of the frame: when the scene settles the app
+shoots by itself, so you never touch the phone. About 36 photos make one pass; then lay the object on its side, tap **Nesneyi
+çevirdim — yeni tur** (New pass) and go around again to capture the underside. **Bitir** packs the set as a zip for AirDrop.
+
+Lighting decides whether this works. Use diffuse light (a window, ceiling light, overcast daylight). A single hard lamp moves the
+shadows across the object as it turns, and photogrammetry reads that as changing geometry (see the verification numbers below).
+Let the object fill most of the frame.
+
+## Mac reconstruction (`lidarcad-reconstruct`)
+
+```bash
+./mac/build.sh                                  # builds mac/build/lidarcad-reconstruct
+./mac/build/lidarcad-reconstruct ~/Downloads/nesne_2026-10-21T201500.zip --sections 0.02,0.05
+```
+
+It takes the zip from AirDrop (or the unzipped folder) and writes `<name>-model/` next to it: a textured `.usdz` for preview and
+the same CAD files the phone produces (OBJ, STL, optional DXF sections and mesh PLY, plus the per-scan readme).
+
+| Option | Values | Default |
+|---|---|---|
+| `--detail` | `preview` `reduced` `medium` `full` `raw` | `full` |
+| `--mask` | `auto`: Apple's built-in object masking; `vision`: per-photo mask from Vision, photos where the object can't be separated are skipped; `none` | `auto` |
+| `--sensitive` | high feature sensitivity for low-texture objects (slower) | off |
+| `--decimate` | `raw` `fine` `medium` `coarse` | `fine` |
+| `--unit` | `mm` `cm` `m` | `mm` |
+| `--formats` | `obj,stl,plymesh,dxf` | `obj,stl` |
+| `--sections` | DXF section heights in metres, comma-separated | none |
+
+Scale comes from the LiDAR depth embedded in each HEIC. Gravity is used only for single-pass sets: once the object has been flipped,
+"down" no longer means the same thing for every photo.
+
+**Verification.** `mac/Tests/make-turntable.swift` renders a synthetic turntable set (fixed camera and light, a textured
+10 × 6 × 4 box turning in front of a plain background) so the whole Mac path can be tested without a phone. Recovered box
+proportions at `reduced` detail, without depth:
+
+| Capture | Mask | Proportions (expected 10 : 6 : 4) |
+|---|---|---|
+| Turntable, hard directional light, object small in frame | vision | 10 : 8.98 : 4.65 — fails |
+| Camera orbits the object, soft light | vision | 10 : 6.34 : 4.14 |
+| Turntable, soft light, object fills the frame | vision | 10 : 6.59 : 4.45 |
+| Turntable, soft light, object fills the frame | auto | 10 : 5.60 : 4.30 |
+| Turntable, soft light, busy static background | vision | 10 : 8.96 : 4.07 — fails (no mask in 19 of 60 photos) |
+| Turntable, soft light, busy static background | auto | 10 : 6.30 : 4.08 |
+
+Two conclusions shaped the defaults. Hard light breaks turntable capture regardless of masking, which is why the app's
+first-shot hints are mostly about light and framing. And Apple's built-in masking beat per-photo Vision masks on every
+turntable set, including the busy background that Vision masks were meant for, so `auto` is the default. The remaining
+error is mostly the underside, which a single pass never sees; flipping the object for a second pass covers it.
 
 ## Export options
 
@@ -111,6 +165,7 @@ LidarCAD/
 │   ├── CropBox.swift           crop box for Region mode
 │   ├── PointCloud.swift        voxel-hash point cloud accumulator
 │   ├── ScanKind.swift          scan modes and their defaults
+│   ├── CaptureManifest.swift   capture.json shared by the phone and the Mac tool
 │   ├── ExportPipeline.swift    options and transform order
 │   └── Writers/                OBJ, STL, PLY, DXF writers
 ├── Scanning/          ARKit and RealityKit layer
@@ -119,8 +174,14 @@ LidarCAD/
 │   ├── DepthUnprojector.swift        depth map → coloured points
 │   ├── ObjectCaptureController.swift Object Capture wrapper
 │   └── RealityMeshExtractor.swift    mesh from the Object Capture model
+├── Capture/           Photo Set mode (AVFoundation)
+│   ├── PhotoCaptureController.swift  LiDAR depth camera, HEIC with embedded depth, auto shutter
+│   └── StillnessDetector.swift       detects the moment the scene settles after a turn
 ├── Export/            file writing and the per-scan readme
 └── UI/                SwiftUI: mode picker, scanning, object flow, export
+mac/
+├── Reconstruct/       lidarcad-reconstruct: Vision masks, PhotogrammetrySession, USDZ → MeshData
+└── Tests/             synthetic turntable generator
 Tests/                 macOS verification runner
 ```
 
@@ -129,11 +190,15 @@ Tests/                 macOS verification runner
 `Core` and `Export` do not touch ARKit, so they run directly on macOS without Xcode:
 
 ```bash
-./Tests/run.sh
+./Tests/run.sh            # Core, Export, capture manifest, auto shutter
+./mac/Tests/run.sh        # Mac tool: depth embedded in HEIC, USD mesh loading
 ```
 
-98 checks: unit conversion, right-handedness of the axis swap, no degenerate triangles after simplification, wall alignment of a
-skewed room, crop box, section perimeter, and byte-level format conformance of OBJ, STL, PLY and DXF.
+113 checks: unit conversion, right-handedness of the axis swap, no degenerate triangles after simplification, wall alignment of a
+skewed room, crop box, capture manifest round trip, the auto-shutter state machine, section perimeter, and byte-level format conformance of OBJ, STL, PLY and DXF.
+
+The Mac tests write a HEIC with a known two-level depth map and check that the depth comes back in metres in the right place,
+since scale for Photo Set models depends on it.
 
 The app UI and code comments are in Turkish.
 

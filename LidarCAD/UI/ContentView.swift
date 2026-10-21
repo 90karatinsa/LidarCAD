@@ -4,6 +4,7 @@ import UIKit
 struct ContentView: View {
     @StateObject private var scanner = ScanSession()
     @StateObject private var objectCapture = ObjectCaptureController()
+    @StateObject private var photoCapture = PhotoCaptureController()
     @State private var kind: ScanKind?
 
     var body: some View {
@@ -18,6 +19,10 @@ struct ContentView: View {
                         // Mekân/Bölge oturumu kamerayı tutuyorsa Object Capture başlayamaz.
                         scanner.stopIfRunning()
                         objectCapture.begin()
+                    case .photoSet:
+                        scanner.stopIfRunning()
+                        // Kamera, görünüm açılınca başlatılıyor.
+                        break
                     }
                 }
 
@@ -32,6 +37,9 @@ struct ContentView: View {
                                onNewScan: { scanner.newScan() },
                                onChangeMode: backToModes)
                 }
+
+            case .photoSet:
+                PhotoCaptureView(controller: photoCapture, onClose: backToModes)
 
             case .object:
                 if case .done = objectCapture.phase {
@@ -52,6 +60,7 @@ struct ContentView: View {
 
     private func backToModes() {
         scanner.stopIfRunning()
+        photoCapture.stop()
         objectCapture.cancel()
         kind = nil
     }

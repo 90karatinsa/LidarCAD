@@ -2,6 +2,7 @@
 // gerçek sayılarla sınar:  swiftc ... && ./verify
 import Foundation
 import simd
+import CoreVideo
 
 var failures = 0
 var checks = 0
@@ -256,6 +257,75 @@ check("bulut kırpıldı", croppedCloud.count > 0 && croppedCloud.count < 200, "
 check("bulut renkleri senkron", croppedCloud.colors.count == croppedCloud.positions.count)
 check("kırpılan noktalar kutuda",
       croppedCloud.positions.allSatisfy { $0.x >= 0.4 - 1e-5 && $0.x <= 0.6 + 1e-5 })
+
+// MARK: - Fotoğraf seti manifestosu
+
+print("\n[manifest]")
+var manifest = CaptureManifest(device: "iPhone17,1", createdAt: Date(timeIntervalSince1970: 1_790_000_000))
+check("boş sette tur sayısı 0", manifest.passCount == 0)
+manifest.shots = (1...4).map {
+    CaptureManifest.Shot(file: String(format: "IMG_%04d.HEIC", $0), pass: 0,
+                         gravity: [0, -1, 0], hasDepth: true)
+}
+check("tek tur", manifest.passCount == 1)
+check("tek turda yerçekimi tutarlı", manifest.gravityIsConsistent)
+manifest.shots.append(.init(file: "IMG_0005.HEIC", pass: 1, gravity: [0, 1, 0], hasDepth: true))
+check("çevrilince iki tur", manifest.passCount == 2)
+check("çok turda yerçekimi kullanılmaz", !manifest.gravityIsConsistent)
+
+let mdir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("manifest-\(UUID().uuidString)")
+try! FileManager.default.createDirectory(at: mdir, withIntermediateDirectories: true)
+try! manifest.save(to: mdir)
+let reloaded = try! CaptureManifest.load(from: mdir)
+check("kaydet/yükle gidiş-dönüş eşit", reloaded == manifest)
+check("tarih ISO8601 korunuyor", reloaded.createdAt == manifest.createdAt)
+try? FileManager.default.removeItem(at: mdir)
+
+// MARK: - Otomatik deklanşör (durulma algılama)
+
+print("\n[durulma]")
+func lumaFrame(_ fill: (Int, Int) -> UInt8) -> CVPixelBuffer {
+    var pb: CVPixelBuffer?
+    CVPixelBufferCreate(nil, 320, 240, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, nil, &pb)
+    let b = pb!
+    CVPixelBufferLockBaseAddress(b, [])
+    let base = CVPixelBufferGetBaseAddressOfPlane(b, 0)!
+    let row = CVPixelBufferGetBytesPerRowOfPlane(b, 0)
+    for y in 0..<240 { for x in 0..<320 {
+        base.advanced(by: y * row + x).storeBytes(of: fill(x, y), as: UInt8.self)
+    }}
+    CVPixelBufferUnlockBaseAddress(b, [])
+    return b
+}
+let sceneA = lumaFrame { x, y in UInt8((x * 7 + y * 3) % 200) }
+let sceneB = lumaFrame { x, y in UInt8((x * 3 + y * 11 + 90) % 230) }   // nesne çevrilmiş
+let det = StillnessDetector()
+var t: CFTimeInterval = 100
+var events: [StillnessDetector.Event] = []
+func feed(_ f: CVPixelBuffer, _ n: Int) { for _ in 0..<n { t += 1.0 / 30; events.append(det.process(f, now: t)) } }
+
+feed(sceneA, 40)                                   // ~1.3 sn sabit sahne
+check("ilk sabit sahnede tek çekim", events.filter { $0 == .still }.count == 1,
+      "\(events.filter { $0 == .still }.count)")
+check("çekimden önce durulma ilerliyor", events.contains { if case .settling = $0 { return true }; return false })
+events.removeAll()
+feed(sceneA, 60)                                   // aynı sahne uzun süre
+check("hareket olmadan ikinci çekim yok", !events.contains(.still))
+events.removeAll()
+feed(sceneB, 1)                                    // nesne çevrildi: büyük fark
+check("sahne değişince hareket algılandı", events.last == .moving)
+events.removeAll()
+feed(sceneB, 40)
+check("yeni duruşta tekrar tek çekim", events.filter { $0 == .still }.count == 1)
+det.disarm(); events.removeAll()
+feed(sceneB, 40)
+check("manuel çekimden sonra otomatik basmıyor", !events.contains(.still))
+// Sensör gürültüsü: ±1 titreşim hareket sayılmamalı
+let noisy = lumaFrame { x, y in UInt8(min(255, Int((x * 7 + y * 3) % 200) + ((x + y) % 2))) }
+det.reset(); events.removeAll()
+for i in 0..<60 { t += 1.0 / 30; events.append(det.process(i % 2 == 0 ? sceneA : noisy, now: t)) }
+check("sensör gürültüsü hareket sayılmıyor", !events.contains(.moving))
+check("gürültüye rağmen çekim yapılıyor", events.contains(.still))
 
 // MARK: - OBJ
 

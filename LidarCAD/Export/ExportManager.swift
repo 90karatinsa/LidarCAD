@@ -39,13 +39,22 @@ enum ExportManager {
                       cloud: CloudSnapshot,
                       options: ExportOptions,
                       name: String,
-                      baseDirectory: URL? = nil) throws -> [URL] {
+                      baseDirectory: URL? = nil,
+                      exactDirectory: URL? = nil) throws -> [URL] {
 
         guard !options.formats.isEmpty else { throw ExportError.noFormatSelected }
         guard !mesh.isEmpty || !cloud.isEmpty else { throw ExportError.emptyScan }
 
         let prepared = MeshPipeline.prepare(mesh: mesh, cloud: cloud, options: options)
-        let dir = try makeScanDirectory(name: name, baseDirectory: baseDirectory)
+        // exactDirectory: Mac aracı çıktıyı kullanıcının verdiği klasöre yazar,
+        // telefondaki Scans/<ad> düzenine gerek yok.
+        let dir: URL
+        if let exactDirectory {
+            try FileManager.default.createDirectory(at: exactDirectory, withIntermediateDirectories: true)
+            dir = exactDirectory
+        } else {
+            dir = try makeScanDirectory(name: name, baseDirectory: baseDirectory)
+        }
         var written: [URL] = []
 
         func save(_ data: Data, _ filename: String) throws {
