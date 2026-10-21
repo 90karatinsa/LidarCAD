@@ -10,6 +10,7 @@ swiftc -O -swift-version 5 -o "$OUT/verify" \
   LidarCAD/Core/SectionSlicer.swift \
   LidarCAD/Core/WallAligner.swift \
   LidarCAD/Core/CropBox.swift \
+  LidarCAD/Core/ObjectIsolator.swift \
   LidarCAD/Core/ScanKind.swift \
   LidarCAD/Core/CaptureManifest.swift \
   LidarCAD/Core/PointCloud.swift \

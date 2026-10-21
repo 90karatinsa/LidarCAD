@@ -327,6 +327,122 @@ for i in 0..<60 { t += 1.0 / 30; events.append(det.process(i % 2 == 0 ? sceneA :
 check("sensör gürültüsü hareket sayılmıyor", !events.contains(.moving))
 check("gürültüye rağmen çekim yapılıyor", events.contains(.still))
 
+// MARK: - Masa ayıklama (destek düzlemi)
+
+print("\n[masa ayıklama]")
+func merge(_ parts: [MeshData]) -> MeshData {
+    var out = MeshData()
+    for m in parts {
+        let base = UInt32(out.positions.count)
+        out.positions += m.positions
+        out.normals += m.normals.count == m.positions.count ? m.normals : m.positions.map { _ in SIMD3<Float>(0, 0, 1) }
+        out.indices += m.indices.map { $0 + base }
+        out.faceClasses += [UInt8](repeating: 0, count: m.triangleCount)
+    }
+    return out
+}
+func flatGrid(cx: Float, cy: Float, z: Float, w: Float, h: Float, n: Int) -> MeshData {
+    var m = MeshData()
+    for j in 0...n { for i in 0...n {
+        m.positions.append(SIMD3(cx - w / 2 + w * Float(i) / Float(n), cy - h / 2 + h * Float(j) / Float(n), z))
+    }}
+    for j in 0..<n { for i in 0..<n {
+        let a = UInt32(j * (n + 1) + i), b = a + 1, c = a + UInt32(n + 1), d = c + 1
+        m.indices += [a, b, c, b, d, c]
+    }}
+    return m
+}
+/// Dik boru: dış yüzey + üst halka. `seams`: doku dikişi gibi her şeridin
+/// vertexleri ayrı (aynı konum, farklı indis) — konuma göre kaynak gerekir.
+func tube(cx: Float, cy: Float, z0: Float, r: Float, height: Float, seams: Bool) -> MeshData {
+    var m = MeshData()
+    let seg = 24, rings = 40
+    func point(_ i: Int, _ k: Int) -> SIMD3<Float> {
+        let a = Float(i % seg) / Float(seg) * 2 * .pi
+        return SIMD3(cx + r * cos(a), cy + r * sin(a), z0 + height * Float(k) / Float(rings))
+    }
+    for k in 0..<rings { for i in 0..<seg {
+        let quad = [point(i, k), point(i + 1, k), point(i, k + 1), point(i + 1, k + 1)]
+        if seams || m.positions.isEmpty {
+            let base = UInt32(m.positions.count)
+            m.positions += quad
+            m.indices += [base, base + 1, base + 2, base + 1, base + 3, base + 2]
+        } else {
+            let base = UInt32(m.positions.count)
+            m.positions += quad
+            m.indices += [base, base + 1, base + 2, base + 1, base + 3, base + 2]
+        }
+    }}
+    // Üst halka (iç yarıçap r/2)
+    for i in 0..<seg {
+        let a0 = Float(i) / Float(seg) * 2 * .pi, a1 = Float(i + 1) / Float(seg) * 2 * .pi
+        let zt = z0 + height
+        let base = UInt32(m.positions.count)
+        m.positions += [SIMD3(cx + r * cos(a0), cy + r * sin(a0), zt), SIMD3(cx + r * cos(a1), cy + r * sin(a1), zt),
+                        SIMD3(cx + r / 2 * cos(a0), cy + r / 2 * sin(a0), zt), SIMD3(cx + r / 2 * cos(a1), cy + r / 2 * sin(a1), zt)]
+        m.indices += [base, base + 1, base + 2, base + 1, base + 3, base + 2]
+    }
+    return m
+}
+/// Her kare ayrı vertexli olduğu için doku dikişi senaryosu zaten bu; kaynak
+/// olmadan boru 1000 parçaya bölünürdü.
+let pipe = tube(cx: 0.05, cy: -0.02, z0: 0.5, r: 0.015, height: 0.10, seams: true)
+let table = flatGrid(cx: 0, cy: 0, z: 0.5, w: 0.6, h: 0.4, n: 30)
+let floorMesh = flatGrid(cx: 0, cy: 0, z: 0, w: 1.5, h: 1.5, n: 20)
+let floater = flatGrid(cx: -0.2, cy: 0.1, z: 0.9, w: 0.1, h: 0.1, n: 4)
+let sceneMesh = merge([table, pipe, floorMesh, floater])
+
+if let r = ObjectIsolator.isolate(sceneMesh, up: SIMD3(0, 0, 1)) {
+    let b = r.mesh.bounds()!
+    check("düzlem yatay bulundu", r.plane.normal.z > 0.99, "\(r.plane.normal)")
+    check("düzlem masa yüksekliğinde (0,5 m)", abs(-r.plane.offset - 0.5) < 0.002, "\(-r.plane.offset)")
+    check("geriye sadece boru kaldı: çap 30 mm", abs(b.size.x - 0.03) < 0.002 && abs(b.size.y - 0.03) < 0.002, "\(b.size)")
+    check("zemin ve havadaki parça gitti", b.min.z > 0.49 && b.max.z < 0.61, "\(b.min.z) … \(b.max.z)")
+    check("boru boyu düzlemden ölçülüyor: 100 mm", abs(r.height - 0.10) < 0.0005, "\(r.height)")
+    check("kesim payı ince (≤ 8 mm)", r.cutThickness <= 0.008, "\(r.cutThickness)")
+    check("doku dikişlerine rağmen boru tek parça", r.mesh.triangleCount > pipe.triangleCount * 8 / 10,
+          "\(r.mesh.triangleCount) / \(pipe.triangleCount)")
+
+    let placed = ObjectIsolator.apply(ObjectIsolator.placement(for: r.mesh, on: r.plane, up: SIMD3(0, 0, 1)), to: r.mesh)
+    let pb = placed.bounds()!
+    check("oturtulunca üst uç Z=100 mm", abs(pb.max.z - 0.10) < 0.0005, "\(pb.max.z)")
+    check("XY'de ortalandı", simd_length(SIMD2(pb.center.x, pb.center.y)) < 0.001, "\(pb.center)")
+} else {
+    check("masa ayıklandı", false, "nil döndü")
+}
+
+// Yerçekimi yok: bütün sahne 30° eğik. Düzlem yine bulunmalı, boru dik oturmalı.
+let tilt = simd_quatf(angle: 30 * .pi / 180, axis: simd_normalize(SIMD3<Float>(1, 0.3, 0)))
+var tilted = sceneMesh
+for i in tilted.positions.indices { tilted.positions[i] = tilt.act(tilted.positions[i]) }
+if let r = ObjectIsolator.isolate(tilted, up: nil) {
+    check("eğik sahnede boy yine 100 mm", abs(r.height - 0.10) < 0.0005, "\(r.height)")
+    let placed = ObjectIsolator.apply(ObjectIsolator.placement(for: r.mesh, on: r.plane, up: SIMD3(0, 0, 1)), to: r.mesh)
+    let pb = placed.bounds()!
+    check("yerçekimsiz de dik oturdu (30 x 30 x ~100)", abs(pb.size.x - 0.03) < 0.002 && abs(pb.size.y - 0.03) < 0.002
+          && abs(pb.max.z - 0.10) < 0.0005, "\(pb.size) üst \(pb.max.z)")
+} else {
+    check("eğik sahnede ayıklandı", false, "nil döndü")
+}
+
+// Masasız nesne: tek başına bir kutu. En büyük düz yüzü masa sanıp kesmemeli.
+check("masasız kutuya dokunmuyor", ObjectIsolator.isolate(box.converted(to: .zUp), up: SIMD3(0, 0, 1)) == nil)
+
+// Pipeline: ayıklama açıkken mm'de boru boyu ve masa Z=0.
+var isoOpts = ExportOptions()
+isoOpts.detail = .raw; isoOpts.unit = .millimeters; isoOpts.upAxis = .zUp
+isoOpts.isolateObject = true; isoOpts.alignToWalls = false
+// Sahneyi ARKit uzayına (Y yukarı) çevirip ver: pipeline önce Z yukarıya çeviriyor.
+var arkitScene = sceneMesh
+for i in arkitScene.positions.indices { let p = arkitScene.positions[i]; arkitScene.positions[i] = SIMD3(p.x, p.z, -p.y) }
+let isoPrepared = MeshPipeline.prepare(mesh: arkitScene, cloud: CloudSnapshot(), options: isoOpts)
+check("pipeline nesne boyunu raporluyor: 100 mm", abs((isoPrepared.isolatedHeight ?? 0) - 100) < 0.5,
+      "\(isoPrepared.isolatedHeight ?? -1)")
+if let ib = isoPrepared.mesh.bounds() {
+    check("pipeline çıktısı sadece boru (30 mm çap)", abs(ib.size.x - 30) < 2 && abs(ib.size.y - 30) < 2, "\(ib.size)")
+    check("pipeline'da masa düzlemi Z=0", ib.min.z >= 0 && ib.min.z < 9 && abs(ib.max.z - 100) < 0.5, "\(ib.min.z) … \(ib.max.z)")
+}
+
 // MARK: - OBJ
 
 print("\n[OBJ]")

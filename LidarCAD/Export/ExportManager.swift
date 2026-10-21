@@ -113,12 +113,23 @@ enum ExportManager {
                 + "\(fixedString(s.y, decimals: d)) x "
                 + "\(fixedString(s.z, decimals: d)) \(unit.suffix)")
         }
+        if let h = prepared.isolatedHeight {
+            lines.append("Nesne boyu   : \(fixedString(h, decimals: d)) \(unit.suffix) (destek düzleminden en uç noktaya)")
+            lines.append("Masa ayıklama: \(prepared.isolatedRemovedTriangles ?? 0) üçgen atıldı, düzlem Z=0")
+            if let cut = prepared.isolationCut {
+                lines.append("               Tabanın ilk \(fixedString(cut, decimals: d)) \(unit.suffix)'si masayla birlikte kesildi; boy ölçüsü bundan etkilenmez")
+            }
+        } else if options.isolateObject {
+            lines.append("Masa ayıklama: destek düzlemi bulunamadı, model olduğu gibi")
+        }
         if let yaw = prepared.appliedYawDegrees {
             lines.append("Duvar hizası : \(fixedString(yaw, decimals: 2))° döndürüldü")
         } else if options.alignToWalls {
             lines.append("Duvar hizası : baskın yön bulunamadı, döndürülmedi")
         }
-        if options.recenterToFloor {
+        if prepared.isolatedHeight != nil {
+            lines.append("Konum         : XY'de ortalandı, masa düzlemi Z=0")
+        } else if options.recenterToFloor {
             lines.append("Konum         : XY'de ortalandı, zemin Z=0'a oturtuldu")
         } else {
             lines.append("Konum         : tarama başlangıç noktasına göre (ARKit origin)")

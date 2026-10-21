@@ -87,6 +87,11 @@ struct ExportOptions: Codable, Equatable {
     var recenterToFloor: Bool = true
     /// Baskın duvar yönünü X/Y eksenlerine oturtur.
     var alignToWalls: Bool = true
+    /// Nesnenin durduğu masayı/altlığı bulup atar, nesneyi düzleme oturtur.
+    var isolateObject: Bool = false
+    /// Mesh yerçekimiyle hizalı mı (ARKit, ya da yerçekimi verilen fotogrametri).
+    /// Değilse destek düzlemi her yönde aranır.
+    var gravityAligned: Bool = true
     /// Zeminden yükseklik, metre. Her biri ayrı bir DXF dosyası olur.
     var sectionHeights: [Float] = [1.2]
     var formats: Set<ExportFormat> = [.obj, .stl, .dxf]
@@ -100,6 +105,10 @@ struct PreparedScan {
     var sectionHeights: [Float]
     /// Duvar hizalaması için uygulanan dönüş (derece); uygulanmadıysa nil.
     var appliedYawDegrees: Float?
+    /// Masa ayıklandıysa: nesnenin düzlemden yüksekliği, hedef birimde.
+    var isolatedHeight: Float?
+    var isolatedRemovedTriangles: Int?
+    var isolationCut: Float?
 }
 
 enum MeshPipeline {
@@ -123,6 +132,18 @@ enum MeshPipeline {
         m = m.converted(to: options.upAxis)
 
         var c = cloud.converted(to: options.upAxis)
+        let upVector: SIMD3<Float> = options.upAxis == .zUp ? SIMD3(0, 0, 1) : SIMD3(0, 1, 0)
+
+        // Masa ayıklama: düzlemi bulup at, nesneyi düzleme oturt. Bu adım
+        // aynı zamanda zemine oturtmanın yerini alıyor (zemin = düzlem).
+        var isolated: ObjectIsolator.Result?
+        if options.isolateObject,
+           let result = ObjectIsolator.isolate(m, up: options.gravityAligned ? upVector : nil) {
+            let placement = ObjectIsolator.placement(for: result.mesh, on: result.plane, up: upVector)
+            m = ObjectIsolator.apply(placement, to: result.mesh)
+            for i in c.positions.indices { c.positions[i] = placement.apply(c.positions[i]) }
+            isolated = result
+        }
 
         // Hizalama Z ekseni etrafında döndürdüğü için sadece Z-yukarı anlamlı.
         var appliedYaw: Float?
@@ -134,7 +155,7 @@ enum MeshPipeline {
         }
 
         var offset = SIMD3<Float>.zero
-        if options.recenterToFloor, let b = m.bounds() {
+        if isolated == nil, options.recenterToFloor, let b = m.bounds() {
             switch options.upAxis {
             case .zUp: offset = SIMD3<Float>(-b.center.x, -b.center.y, -b.min.z)
             case .yUp: offset = SIMD3<Float>(-b.center.x, -b.min.y, -b.center.z)
@@ -151,7 +172,10 @@ enum MeshPipeline {
                             cloud: c,
                             unit: options.unit,
                             sectionHeights: options.sectionHeights.map { $0 * scale },
-                            appliedYawDegrees: appliedYaw)
+                            appliedYawDegrees: appliedYaw,
+                            isolatedHeight: isolated.map { $0.height * scale },
+                            isolatedRemovedTriangles: isolated?.removedTriangles,
+                            isolationCut: isolated.map { $0.cutThickness * scale })
     }
 
     /// Sadece üçgen sayısını merak ettiğimizde tam pipeline'ı çalıştırmaya gerek yok.

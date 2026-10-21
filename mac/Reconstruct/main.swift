@@ -17,7 +17,16 @@ Kullanım: lidarcad-reconstruct <fotoğraf-klasörü> [seçenekler]
                        vision: her fotoğrafa Vision ile maske; nesnenin ayrılamadığı
                                fotoğraflar atlanır. Düz arka planda kamera dolaşırken işe yarar.
   --sensitive        Az dokulu nesneler için yüksek özellik hassasiyeti (daha yavaş)
-  --decimate SEVİYE  raw | fine | medium | coarse   (varsayılan: fine)
+  --gravity KİP      auto | on | off   (varsayılan: auto)
+                       auto: yalnızca tek turlu setlerde. Nesne yan yatırılmadıysa ama
+                             "yeni tur"a basıldıysa on verin.
+  --isolate KİP      on | off   (varsayılan: on)
+                       Nesnenin durduğu masayı/altlığı bulup atar, nesneyi düzleme oturtur
+                       ve boyunu düzlemden ölçer. Döner tablada nesneyle dönen her şey modele
+                       girdiği için gerekli.
+  --decimate SEVİYE  raw | fine | medium | coarse   (varsayılan: raw)
+                       fine/medium/coarse hücreleri 1,2 / 3 / 6 cm — oda ölçeği için; küçük
+                       parçada detayı siler. Fusion'da Convert Mesh için gerekirse Mesh > Reduce.
   --unit BİRİM       mm | cm | m   (varsayılan: mm)
   --formats LİSTE    obj,stl,plymesh,dxf   (varsayılan: obj,stl)
   --sections LİSTE   DXF kesit yükseklikleri, metre, virgülle: 0.02,0.05
@@ -25,6 +34,7 @@ Kullanım: lidarcad-reconstruct <fotoğraf-klasörü> [seçenekler]
 """
 
 enum MaskMode: String { case vision, auto, none }
+enum GravityMode: String { case auto, on, off }
 
 struct Arguments {
     var input: URL
@@ -32,7 +42,9 @@ struct Arguments {
     var detail: PhotogrammetrySession.Request.Detail = .full
     var mask: MaskMode = .auto
     var sensitive = false
-    var decimate: DetailLevel = .fine
+    var gravity: GravityMode = .auto
+    var decimate: DetailLevel = .raw
+    var isolate = true
     var unit: LengthUnit = .millimeters
     var formats: Set<ExportFormat> = [.obj, .stl]
     var sections: [Float] = []
@@ -73,6 +85,14 @@ func parseArguments() -> Arguments {
             args.mask = m
         case "--sensitive":
             args.sensitive = true
+        case "--gravity":
+            let v = value(flag)
+            guard let g = GravityMode(rawValue: v) else { fail("bilinmeyen yerçekimi kipi: \(v)") }
+            args.gravity = g
+        case "--isolate":
+            let v = value(flag)
+            guard v == "on" || v == "off" else { fail("--isolate on ya da off olmalı") }
+            args.isolate = v == "on"
         case "--decimate":
             let v = value(flag)
             guard let d = DetailLevel(rawValue: v) else { fail("bilinmeyen sadeleştirme: \(v)") }
@@ -154,7 +174,13 @@ if let manifest {
 }
 guard entries.count >= 3 else { fail("en az 3 fotoğraf gerekiyor, bulunan: \(entries.count)") }
 
-let useGravity = manifest?.gravityIsConsistent ?? false
+let gravityAvailable = manifest?.shots.allSatisfy { $0.gravity?.count == 3 } ?? false
+let useGravity: Bool
+switch args.gravity {
+case .auto: useGravity = manifest?.gravityIsConsistent ?? false
+case .on:   useGravity = gravityAvailable
+case .off:  useGravity = false
+}
 let name = args.name ?? inputStem
 // Zip verildiyse çıktı geçici klasöre değil, zip'in yanına gitsin.
 let output = args.output ?? args.input.deletingLastPathComponent()
@@ -203,6 +229,12 @@ do {
 }
 
 let modelURL = output.appendingPathComponent("\(name).usdz")
+// PhotogrammetrySession var olan çıktının üzerine yazmıyor (Error 1). Bu
+// klasör bizim çıktımız; yeniden çalıştırmada önceki modeli kaldırıyoruz.
+if FileManager.default.fileExists(atPath: modelURL.path) {
+    try? FileManager.default.removeItem(at: modelURL)
+    print("  önceki model değiştiriliyor")
+}
 do {
     try session.process(requests: [.modelFile(url: modelURL, detail: args.detail)])
 } catch {
@@ -259,12 +291,23 @@ options.unit = args.unit
 options.detail = args.decimate
 options.formats = args.formats
 options.sectionHeights = args.sections
+options.isolateObject = args.isolate
+// Yerçekimi verildiyse model dik; verilmediyse destek düzlemi her yönde aranır.
+options.gravityAligned = useGravity
 
 do {
     let files = try ExportManager.write(mesh: mesh, cloud: CloudSnapshot(), options: options,
                                         name: name, exactDirectory: output)
     let minutes = Int(Date().timeIntervalSince(started)) / 60
-    print("\nTamam — \(minutes) dk. Model \(mesh.triangleCount) üçgen.\n")
+    print("\nTamam — \(minutes) dk. Model \(mesh.triangleCount) üçgen.")
+    let prepared = MeshPipeline.prepare(mesh: mesh, cloud: CloudSnapshot(), options: options)
+    let d = options.unit.decimals, u = options.unit.suffix
+    if let h = prepared.isolatedHeight, let b = prepared.mesh.bounds() {
+        print("Masa ayıklandı: nesne \(fixedString(b.size.x, decimals: 1)) x \(fixedString(b.size.y, decimals: 1)) \(u) taban, boy \(fixedString(h, decimals: d)) \(u)")
+    } else if args.isolate {
+        print("Destek düzlemi bulunamadı; model olduğu gibi.")
+    }
+    print("")
     print("  \(modelURL.lastPathComponent)  (dokulu, önizleme için)")
     for url in files { print("  \(url.lastPathComponent)") }
     print("\nKlasör: \(output.path)")

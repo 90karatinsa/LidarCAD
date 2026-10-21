@@ -8,6 +8,7 @@ struct PhotoCaptureView: View {
     @State private var archive: URL?
     @State private var archiveError: String?
     @State private var isPacking = false
+    @State private var confirmNewPass = false
 
     var body: some View {
         ZStack {
@@ -99,8 +100,8 @@ struct PhotoCaptureView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Label("Telefonu sabitleyin, nesne çerçeveyi doldursun", systemImage: "iphone.gen3")
                     Label("Işık dağınık olsun: pencere ya da tavan ışığı. Tek yönlü sert lamba, nesne döndükçe gölgeyi kaydırır ve modeli bozar", systemImage: "lightbulb")
-                    Label("Her seferinde ~10° çevirin, elinizi çekin — durulunca kendiliğinden çeker", systemImage: "rotate.right")
-                    Label("Bir tur ~36 fotoğraf. Sonra nesneyi yan yatırıp yeni tur", systemImage: "arrow.uturn.down")
+                    Label("Her seferinde ~10° döndürün, elinizi çekin — durulunca kendiliğinden çeker. Döndürdükten sonra hiçbir düğmeye basmayın", systemImage: "rotate.right")
+                    Label("Bir tur ~36 fotoğraf. Tur bitince nesneyi yan yatırın ve \"Yan yatırdım\" deyin", systemImage: "arrow.uturn.down")
                 }
                     .font(.caption)
                     .padding(12)
@@ -142,14 +143,23 @@ struct PhotoCaptureView: View {
             }
 
             HStack(spacing: 10) {
+                // "Çevirdim" hem döndürmek hem ters çevirmek demek; kullanıcı her
+                // 10°'de basıyordu. Bu düğme yalnızca nesne yan yatırılınca.
                 Button {
-                    controller.startNewPass()
+                    if controller.shotsInPass < 12 { confirmNewPass = true } else { controller.startNewPass() }
                 } label: {
-                    Label("Nesneyi çevirdim — yeni tur", systemImage: "arrow.uturn.down")
+                    Label("Yan yatırdım — yeni tur", systemImage: "arrow.uturn.down")
                         .font(.footnote)
                 }
                 .buttonStyle(.bordered)
                 .disabled(controller.shotsInPass == 0)
+                .confirmationDialog("Bu turda sadece \(controller.shotsInPass) fotoğraf var",
+                                    isPresented: $confirmNewPass, titleVisibility: .visible) {
+                    Button("Evet, nesneyi yan yatırdım") { controller.startNewPass() }
+                    Button("Hayır, sadece döndürdüm", role: .cancel) {}
+                } message: {
+                    Text("Bu düğme nesneyi yan yatırdığınızda, alt yüzünü göstermek için. Sadece döndürdüyseniz basmanıza gerek yok; çekim kendiliğinden devam eder.")
+                }
 
                 Button {
                     controller.finish()
