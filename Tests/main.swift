@@ -425,6 +425,22 @@ if let r = ObjectIsolator.isolate(tilted, up: nil) {
     check("eğik sahnede ayıklandı", false, "nil döndü")
 }
 
+// Kaba mesh: yüz başına 2 üçgenli kutu masada. Gerçek fotogrametri
+// çıktısında nesnenin yan yüzleri tabana kadar inen büyük üçgenler; tabana
+// değen üçgeni atmak yan yüzün tamamını götürür.
+var coarseBox = box.converted(to: .zUp)      // 2 x 3 x 2,5 m kutu, 12 üçgen
+let cbb = coarseBox.bounds()!
+coarseBox = coarseBox.translated(by: SIMD3(-cbb.center.x, -cbb.center.y, 0.5 - cbb.min.z))  // tabanı z=0,5'te
+let bigTable = flatGrid(cx: 0, cy: 0, z: 0.5, w: 8, h: 8, n: 40)
+if let r = ObjectIsolator.isolate(merge([bigTable, coarseBox]), up: SIMD3(0, 0, 1)) {
+    let b = r.mesh.bounds()!
+    check("kaba kutu: yan yüzler korundu (2 x 3 m taban)", abs(b.size.x - 2) < 0.05 && abs(b.size.y - 3) < 0.05, "\(b.size)")
+    check("kaba kutu: boy 2,5 m", abs(r.height - 2.5) < 0.01, "\(r.height)")
+    check("kaba kutu: masa gitti", r.mesh.triangleCount <= 12, "\(r.mesh.triangleCount)")
+} else {
+    check("kaba kutu masadan ayıklandı", false, "nil döndü")
+}
+
 // Masasız nesne: tek başına bir kutu. En büyük düz yüzü masa sanıp kesmemeli.
 check("masasız kutuya dokunmuyor", ObjectIsolator.isolate(box.converted(to: .zUp), up: SIMD3(0, 0, 1)) == nil)
 

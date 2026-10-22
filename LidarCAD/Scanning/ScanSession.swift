@@ -63,7 +63,14 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
     @Published private(set) var cropBox: CropBox?
     /// Kutunun kenar uzunluğu, metre.
     @Published var cropSize: Float = 0.4 {
-        didSet { if cropBox != nil { refreshCropBoxEntity() } }
+        didSet {
+            // Kutunun kendisi de büyüyüp küçülmeli; önceden yalnızca görsel
+            // yeniden çiziliyor, boyut yerleştirildiği gibi kalıyordu.
+            guard var box = cropBox else { return }
+            box.size = SIMD3<Float>(repeating: cropSize)
+            cropBox = box
+            refreshCropBoxEntity()
+        }
     }
     private(set) var kind: ScanKind = .space
     /// ARSession şu an çalışıyor mu. `stopIfRunning()` gereksiz yere ARView
@@ -88,8 +95,12 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
     private var frameCounter = 0
     private var lastStatsPush: CFAbsoluteTime = 0
 
-    /// Her karede derinlik açmak gereksiz; ~20 Hz yeterli ve batarya dostu.
-    private let depthFrameInterval = 3
+    /// Mekânda ~20 Hz ve her 2. piksel yeterli; Bölge'de LiDAR'ın verdiği her
+    /// pikseli 30 Hz'de alıyoruz (kutu küçük, bütçe yetiyor).
+    private var depthFrameInterval = 3
+    private var depthPixelStride = 2
+    /// cropBox'ın work kuyruğundaki kopyası.
+    private var workCropBox: CropBox?
 
     // MARK: - Kontrol
 
@@ -133,6 +144,9 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
                 self.cloud.reset()
             }
             self.frameCounter = 0
+            self.depthFrameInterval = kind == .region ? 2 : 3
+            self.depthPixelStride = kind == .region ? 1 : 2
+            self.workCropBox = nil
             self.isCapturing = true
         }
 
@@ -204,10 +218,13 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
 
     func clearCropBox() {
         cropBox = nil
+        work.async { [weak self] in self?.workCropBox = nil }
         removeCropBoxEntity()
     }
 
     private func refreshCropBoxEntity() {
+        let current = cropBox
+        work.async { [weak self] in self?.workCropBox = current }
         removeCropBoxEntity()
         guard let cropBox else { return }
 
@@ -242,7 +259,8 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
         frameCounter += 1
 
         if pointCloudEnabled, frameCounter % depthFrameInterval == 0 {
-            DepthUnprojector.accumulate(frame: frame, into: cloud, pixelStride: 2)
+            DepthUnprojector.accumulate(frame: frame, into: cloud,
+                                        pixelStride: depthPixelStride, crop: workCropBox)
         }
         pushStatsIfNeeded()
     }

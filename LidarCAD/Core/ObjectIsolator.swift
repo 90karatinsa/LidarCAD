@@ -10,6 +10,9 @@ import simd
 /// payı yüksekliği değiştirmiyor.
 enum ObjectIsolator {
 
+    /// Teşhis için: verilirse ara adımları yazar (Mac aracında --trace-isolate).
+    nonisolated(unsafe) static var trace: ((String) -> Void)?
+
     struct Plane: Equatable {
         /// Birim normal, nesnenin bulunduğu tarafa bakar.
         var normal: SIMD3<Float>
@@ -47,9 +50,11 @@ enum ObjectIsolator {
         // büyük çıkabilir ama nesne zemine değil masaya oturuyor. Birkaç düzlem
         // bulup üstünde bir şey oturanları aday sayıyoruz.
         let planes = findPlanes(faces, up: up, threshold: coarse, maxCount: 4)
+        trace?("üçgen \(faces.count), toplam alan \(faces.totalArea), kaba eşik \(coarse), bulunan düzlem \(planes.count)")
         var candidates: [Result] = []
         for var plane in planes {
             let cut = cutThickness(faces, plane: plane, coarse: coarse)
+            trace?("düzlem n=\(plane.normal) ofset=\(plane.offset) kesim=\(cut)")
             if let up {
                 if simd_dot(plane.normal, up) < 0 { plane = flipped(plane) }
                 if let r = keepResting(mesh, faces, plane: plane, cut: cut) { candidates.append(r) }
@@ -162,6 +167,7 @@ enum ObjectIsolator {
             }
             if score > (best?.score ?? 0) { best = (candidate, score) }
         }
+        trace?("  RANSAC en iyi puan \(best?.score ?? 0) / \(faces.totalArea) (deneme \(attempts))")
         guard var plane = best?.plane, let score = best?.score,
               score >= faces.totalArea * 0.05 else { return nil }
 
@@ -186,13 +192,17 @@ enum ObjectIsolator {
     // MARK: - Ayıklama
 
     private static func keepResting(_ mesh: MeshData, _ faces: FaceInfo, plane: Plane, cut: Float) -> Result? {
-        // Taban ve altı: üç köşesi de kesim payının üstünde olmayan üçgenler gider.
+        // Masanın kendi üçgenleri tamamen düzlem kalınlığında ya da altında:
+        // en az bir köşesi kesim payının üstüne çıkmayan üçgen gider. Nesnenin
+        // tabana inen yan üçgenleri kalır — fotogrametri mesh'inde bunlar
+        // büyük ve tabana değiyor; "tabana değeni at" kuralı yan yüzün
+        // tamamını götürüp nesneyi havada bir üst yüze indiriyordu.
         var keep = [Bool](repeating: false, count: mesh.triangleCount)
         for f in 0..<mesh.triangleCount {
-            let a = mesh.positions[Int(mesh.indices[f * 3])]
-            let b = mesh.positions[Int(mesh.indices[f * 3 + 1])]
-            let c = mesh.positions[Int(mesh.indices[f * 3 + 2])]
-            keep[f] = plane.distance(a) > cut && plane.distance(b) > cut && plane.distance(c) > cut
+            let a = plane.distance(mesh.positions[Int(mesh.indices[f * 3])])
+            let b = plane.distance(mesh.positions[Int(mesh.indices[f * 3 + 1])])
+            let c = plane.distance(mesh.positions[Int(mesh.indices[f * 3 + 2])])
+            keep[f] = max(a, b, c) > cut
         }
 
         // Doku dikişlerinde vertexler çoğaltılmış olabilir (aynı konum, farklı UV);
@@ -228,9 +238,12 @@ enum ObjectIsolator {
 
         // Düzleme oturanlar: en alt noktası kesim payının hemen üstünde.
         let resting = components.filter { $0.value.minDistance < cut * 4 }
+        let keptCount = keep.filter { $0 }.count
+        trace?("  taraf n=\(plane.normal): kalan üçgen \(keptCount), parça \(components.count), oturan \(resting.count), en büyük parça alanı \(components.values.map(\.area).max() ?? 0), en alçak \(components.values.map(\.minDistance).min() ?? -1)")
         guard let largest = resting.max(by: { $0.value.area < $1.value.area }) else { return nil }
-        // Çok parçalı nesneler için büyüğün %10'undan büyük oturan parçalar da kalsın.
-        let chosen = Set(resting.filter { $0.value.area >= largest.value.area * 0.1 }.map(\.key))
+        // Çok parçalı nesneler için büyüğün %30'undan büyük oturan parçalar da
+        // kalsın; masa gürültüsünden kalan ufak sivrilikler elensin.
+        let chosen = Set(resting.filter { $0.value.area >= largest.value.area * 0.3 }.map(\.key))
 
         var out = MeshData()
         var remap = [Int32](repeating: -1, count: mesh.vertexCount)
@@ -269,6 +282,7 @@ enum ObjectIsolator {
             && abs(simd_dot(faces.normal[f], plane.normal)) > 0.94 {
             planeArea += faces.area[f]
         }
+        trace?("  destek kontrolü: düzlem alanı \(planeArea), nesne izdüşümü \(footprint), kalan üçgen \(out.triangleCount)")
         guard planeArea >= footprint * 2 else { return nil }
 
         return Result(mesh: out, plane: plane, cutThickness: cut, removedTriangles: removed, height: height)

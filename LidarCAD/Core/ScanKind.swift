@@ -52,7 +52,8 @@ enum ScanKind: String, Codable, CaseIterable, Identifiable {
     var cloudVoxelSize: Float {
         switch self {
         case .space:  return 0.01
-        case .region: return 0.005
+        // Bölge küçük ve kutuyla sınırlı: LiDAR'ın verebildiği en sık örnekleme.
+        case .region: return 0.0025
         case .object, .photoSet: return 0.01
         }
     }

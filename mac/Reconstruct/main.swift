@@ -20,6 +20,7 @@ Kullanım: lidarcad-reconstruct <fotoğraf-klasörü> [seçenekler]
   --gravity KİP      auto | on | off   (varsayılan: auto)
                        auto: yalnızca tek turlu setlerde. Nesne yan yatırılmadıysa ama
                              "yeni tur"a basıldıysa on verin.
+  --trace-isolate    Masa ayıklamanın ara adımlarını yaz (teşhis için)
   --isolate KİP      on | off   (varsayılan: on)
                        Nesnenin durduğu masayı/altlığı bulup atar, nesneyi düzleme oturtur
                        ve boyunu düzlemden ölçer. Döner tablada nesneyle dönen her şey modele
@@ -89,6 +90,8 @@ func parseArguments() -> Arguments {
             let v = value(flag)
             guard let g = GravityMode(rawValue: v) else { fail("bilinmeyen yerçekimi kipi: \(v)") }
             args.gravity = g
+        case "--trace-isolate":
+            ObjectIsolator.trace = { print("  [ayıklama] " + $0) }
         case "--isolate":
             let v = value(flag)
             guard v == "on" || v == "off" else { fail("--isolate on ya da off olmalı") }
@@ -138,14 +141,30 @@ func resolveInput(_ url: URL) -> URL {
     ditto.arguments = ["-x", "-k", url.path, temp.path]
     do { try ditto.run(); ditto.waitUntilExit() } catch { fail("zip açılamadı: \(error.localizedDescription)") }
     guard ditto.terminationStatus == 0 else { fail("zip açılamadı: \(url.lastPathComponent)") }
-    let enumerator = FileManager.default.enumerator(at: temp, includingPropertiesForKeys: nil)
-    while let item = enumerator?.nextObject() as? URL {
-        if item.lastPathComponent == CaptureManifest.fileName { return item.deletingLastPathComponent() }
-    }
-    return temp
+    return locateImages(in: temp)
 }
 
-let folder = resolveInput(args.input)
+let imageExtensions: Set<String> = ["heic", "heif", "jpg", "jpeg", "png"]
+
+/// capture.json'lı klasörü (Fotoğraf seti) ya da en çok fotoğrafı içeren
+/// klasörü (Nesne modunun Object Capture fotoğrafları) bulur.
+func locateImages(in root: URL) -> URL {
+    var best: (URL, Int)?
+    let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey])
+    var dirs = [root]
+    while let item = enumerator?.nextObject() as? URL {
+        if item.lastPathComponent == CaptureManifest.fileName { return item.deletingLastPathComponent() }
+        if (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { dirs.append(item) }
+    }
+    for dir in dirs {
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        let count = files.filter { imageExtensions.contains(($0 as NSString).pathExtension.lowercased()) }.count
+        if count > (best?.1 ?? 0) { best = (dir, count) }
+    }
+    return best?.0 ?? root
+}
+
+let folder = locateImages(in: resolveInput(args.input))
 let inputStem = args.input.deletingPathExtension().lastPathComponent
 var isDirectory: ObjCBool = false
 guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -156,7 +175,6 @@ guard PhotogrammetrySession.isSupported else {
 }
 
 let manifest = try? CaptureManifest.load(from: folder)
-let imageExtensions: Set<String> = ["heic", "heif", "jpg", "jpeg", "png"]
 
 var entries: [LazySampleSequence.Entry] = []
 if let manifest {
@@ -209,6 +227,13 @@ var loaded = 0
 var maskMisses = 0
 let session: PhotogrammetrySession
 do {
+    // Manifestosuz klasör = Nesne modunun Object Capture fotoğrafları. Onlar
+    // Apple'ın kendi çekim meta verisini taşıyor; Apple'ın belgelediği yol
+    // klasörü doğrudan vermek.
+    if manifest == nil && args.mask != .vision {
+        print("  Object Capture fotoğrafları: klasör doğrudan Apple'a veriliyor")
+        session = try PhotogrammetrySession(input: folder, configuration: configuration)
+    } else {
     // Her kipte örnek dizisi: derinlik ve (tek turlu setlerde) yerçekimi
     // açıkça gidiyor. auto/none'da maskeyi Apple'ın oturumu kendisi yapıyor.
     switch args.mask {
@@ -223,6 +248,7 @@ do {
             }
         }
         session = try PhotogrammetrySession(input: samples, configuration: configuration)
+    }
     }
 } catch {
     fail("fotogrametri oturumu açılamadı: \(error.localizedDescription)")

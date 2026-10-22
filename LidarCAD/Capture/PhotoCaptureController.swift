@@ -323,23 +323,7 @@ final class PhotoCaptureController: NSObject, ObservableObject {
     /// `lidarcad-reconstruct` doğrudan zip'i de açıyor).
     func makeArchive() throws -> URL {
         guard let folder else { throw CocoaError(.fileNoSuchFile) }
-        var coordinatorError: NSError?
-        var archive: URL?
-        var copyError: Error?
-        NSFileCoordinator().coordinate(readingItemAt: folder, options: [.forUploading],
-                                       error: &coordinatorError) { zipURL in
-            let target = FileManager.default.temporaryDirectory
-                .appendingPathComponent(folder.lastPathComponent + ".zip")
-            do {
-                try? FileManager.default.removeItem(at: target)
-                try FileManager.default.copyItem(at: zipURL, to: target)
-                archive = target
-            } catch { copyError = error }
-        }
-        if let coordinatorError { throw coordinatorError }
-        if let copyError { throw copyError }
-        guard let archive else { throw CocoaError(.fileWriteUnknown) }
-        return archive
+        return try FolderArchiver.zip(folder)
     }
 
     private static func modelIdentifier() -> String {

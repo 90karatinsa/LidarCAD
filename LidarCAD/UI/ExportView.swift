@@ -6,20 +6,33 @@ struct ExportView: View {
     let kind: ScanKind
     let onNewScan: () -> Void
     let onChangeMode: () -> Void
+    /// Nesne modunda modeli oluşturan fotoğraflar; Mac'te tam detay için.
+    var imagesFolder: URL? = nil
+    var imageCount: Int = 0
+    var archiveImages: (() throws -> URL)? = nil
 
     @StateObject private var model: ExportModel
     @State private var showShareSheet = false
+    @State private var imagesArchive: URL?
+    @State private var isPackingImages = false
+    @State private var packingError: String?
 
     init(mesh: MeshData,
          cloud: CloudSnapshot,
          kind: ScanKind,
          onNewScan: @escaping () -> Void,
-         onChangeMode: @escaping () -> Void) {
+         onChangeMode: @escaping () -> Void,
+         imagesFolder: URL? = nil,
+         imageCount: Int = 0,
+         archiveImages: (() throws -> URL)? = nil) {
         self.mesh = mesh
         self.cloud = cloud
         self.kind = kind
         self.onNewScan = onNewScan
         self.onChangeMode = onChangeMode
+        self.imagesFolder = imagesFolder
+        self.imageCount = imageCount
+        self.archiveImages = archiveImages
         _model = StateObject(wrappedValue: ExportModel(options: kind.defaultOptions))
     }
 
@@ -27,6 +40,7 @@ struct ExportView: View {
         NavigationStack {
             Form {
                 summarySection
+                if imagesFolder != nil { fullDetailSection }
                 targetSection
                 densitySection
                 if kind == .space && ScanSession.hasClassification { surfacesSection }
@@ -52,6 +66,7 @@ struct ExportView: View {
             .sheet(isPresented: $showShareSheet) {
                 ShareSheet(urls: model.exportedURLs)
             }
+            .sheet(item: $imagesArchive) { url in ShareSheet(urls: [url]) }
             .alert("Dışa aktarılamadı",
                    isPresented: Binding(get: { model.errorMessage != nil },
                                         set: { if !$0 { model.errorMessage = nil } })) {
@@ -76,6 +91,36 @@ struct ExportView: View {
                 row("Kapladığı hacim",
                     "\(fixedString(s.x, decimals: 2)) × \(fixedString(s.z, decimals: 2)) × \(fixedString(s.y, decimals: 2)) m")
             }
+        }
+    }
+
+    // MARK: - Tam detay (Mac)
+
+    private var fullDetailSection: some View {
+        Section {
+            Button {
+                guard let archiveImages else { return }
+                isPackingImages = true
+                packingError = nil
+                Task {
+                    defer { isPackingImages = false }
+                    do { imagesArchive = try archiveImages() }
+                    catch { packingError = error.localizedDescription }
+                }
+            } label: {
+                HStack {
+                    if isPackingImages { ProgressView().controlSize(.small) }
+                    Label("\(imageCount) fotoğrafı Mac'e gönder", systemImage: "desktopcomputer")
+                }
+            }
+            .disabled(isPackingImages)
+            if let packingError {
+                Text(packingError).font(.caption).foregroundStyle(.red)
+            }
+        } header: {
+            Text("Tam detay (Mac)")
+        } footer: {
+            Text("Bu model telefonda Apple'ın izin verdiği en düşük ikinci detayla (reduced) oluşturuldu. Aynı fotoğraflar Mac'te 'raw' detayla birkaç kat daha ince çıkar: AirDrop ile gönderin, sonra lidarcad-reconstruct ~/Downloads/<ad>.zip --detail raw. Fotoğraflar bir sonraki Nesne taramasına kadar telefonda saklanır.")
         }
     }
 

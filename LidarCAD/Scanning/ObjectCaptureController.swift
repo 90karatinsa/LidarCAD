@@ -30,6 +30,16 @@ final class ObjectCaptureController: ObservableObject {
     /// sıfırlamadı. Bu aralıkta ikinci bir çağrı Apple'ın ön koşulunu bozuyor.
     @Published private(set) var passTransitionPending = false
     @Published private(set) var mesh = MeshData()
+    /// Modeli oluşturan fotoğraflar. Telefonda Apple yalnızca `reduced` detay
+    /// veriyor; bu klasör Mac'e gidip `raw` detayda yeniden işlenebiliyor.
+    /// Telefonda yer kaplamasın diye yalnızca son taramanınki tutuluyor.
+    @Published private(set) var imagesFolder: URL?
+    @Published private(set) var imageCount = 0
+
+    private static let capturePrefix = "oc_"
+    private static var capturesRoot: URL {
+        ExportManager.documentsDirectory().appendingPathComponent("Captures", isDirectory: true)
+    }
 
     private var workspace: URL?
     private var imagesDirectory: URL?
@@ -40,13 +50,19 @@ final class ObjectCaptureController: ObservableObject {
 
     func begin() {
         cleanUp()
+        removePreviousCaptures()
         mesh = MeshData()
+        imagesFolder = nil
+        imageCount = 0
         passCount = 0
         phase = .capturing
 
         do {
-            let root = FileManager.default.temporaryDirectory
-                .appendingPathComponent("ObjectCapture/\(UUID().uuidString)", isDirectory: true)
+            let stamp = ISO8601DateFormatter.string(from: Date(), timeZone: .current,
+                                                    formatOptions: [.withFullDate, .withTime])
+                .replacingOccurrences(of: ":", with: "")
+            let root = Self.capturesRoot
+                .appendingPathComponent("\(Self.capturePrefix)\(stamp)", isDirectory: true)
             let images = root.appendingPathComponent("Images", isDirectory: true)
             let checkpoint = root.appendingPathComponent("Checkpoint", isDirectory: true)
             // start(imagesDirectory:) dizinin var ve boş olmasını şart koşuyor.
@@ -150,6 +166,7 @@ final class ObjectCaptureController: ObservableObject {
         reconstructionTask?.cancel()
         reconstructionTask = nil
         session?.cancel()
+        // Tamamlanmış bir taramanın fotoğrafları "Mac'e gönder" için kalsın.
         cleanUp()
         phase = .capturing
     }
@@ -179,9 +196,12 @@ final class ObjectCaptureController: ObservableObject {
                         log.info("model: \(self.mesh.triangleCount) üçgen")
                     }
                 case .processingComplete:
-                    phase = mesh.isEmpty
-                        ? .failed("Model oluşturulamadı. Nesnenin dokusu yetersiz olabilir.")
-                        : .done
+                    if mesh.isEmpty {
+                        phase = .failed("Model oluşturulamadı. Nesnenin dokusu yetersiz olabilir.")
+                    } else {
+                        keepImagesForMac()
+                        phase = .done
+                    }
                     return
                 case .requestError(_, let error):
                     phase = .failed(error.localizedDescription)
@@ -202,11 +222,38 @@ final class ObjectCaptureController: ObservableObject {
 
     private func cleanUp() {
         session = nil
-        if let workspace {
+        // Model tamamlandıysa fotoğraflar Mac için saklanıyor; ancak yeni bir
+        // tarama başlarken removePreviousCaptures() ile gidiyorlar.
+        if let workspace, imagesFolder == nil {
             try? FileManager.default.removeItem(at: workspace)
         }
         workspace = nil
         imagesDirectory = nil
+    }
+
+    /// Checkpoint yalnızca telefondaki rekonstrüksiyonu sürdürmek için; Mac'e
+    /// fotoğraflar yeter. Yer açmak için siliyoruz.
+    private func keepImagesForMac() {
+        guard let workspace, let imagesDirectory else { return }
+        try? FileManager.default.removeItem(at: workspace.appendingPathComponent("Checkpoint"))
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: imagesDirectory.path)) ?? []
+        imageCount = files.filter { ["heic", "jpg", "jpeg", "png"].contains(($0 as NSString).pathExtension.lowercased()) }.count
+        imagesFolder = imagesDirectory
+    }
+
+    /// Her Nesne taraması yüzlerce MB fotoğraf bırakabilir; yalnızca sonuncusu kalsın.
+    private func removePreviousCaptures() {
+        let root = Self.capturesRoot
+        let items = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        for item in items where item.lastPathComponent.hasPrefix(Self.capturePrefix) {
+            try? FileManager.default.removeItem(at: item)
+        }
+    }
+
+    func archiveImages() throws -> URL {
+        guard let imagesFolder else { throw CocoaError(.fileNoSuchFile) }
+        // Zip adı klasörün değil taramanın adı olsun (Images.zip değil).
+        return try FolderArchiver.zip(imagesFolder, as: imagesFolder.deletingLastPathComponent().lastPathComponent)
     }
 }
 

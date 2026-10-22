@@ -47,7 +47,10 @@ struct ContentView: View {
                                cloud: CloudSnapshot(),
                                kind: .object,
                                onNewScan: { objectCapture.begin() },
-                               onChangeMode: backToModes)
+                               onChangeMode: backToModes,
+                               imagesFolder: objectCapture.imagesFolder,
+                               imageCount: objectCapture.imageCount,
+                               archiveImages: { try objectCapture.archiveImages() })
                 } else {
                     ObjectScanView(controller: objectCapture, onCancel: backToModes)
                 }

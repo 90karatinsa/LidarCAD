@@ -17,7 +17,8 @@ enum DepthUnprojector {
                            pixelStride: Int = 2,
                            minConfidence: UInt8 = 2,
                            maxDepth: Float = 5.0,
-                           minDepth: Float = 0.15) {
+                           minDepth: Float = 0.15,
+                           crop: CropBox? = nil) {
 
         guard let sceneDepth = frame.smoothedSceneDepth ?? frame.sceneDepth else { return }
         let depthMap = sceneDepth.depthMap
@@ -90,6 +91,8 @@ enum DepthUnprojector {
                 let x = (Float(u) - cx) * depth / fx
                 let y = (Float(v) - cy) * depth / fy
                 let world = cameraToWorld * SIMD4<Float>(x, -y, -depth, 1)
+                // Bölge modunda kutu dışı noktalar nokta bütçesini harcamasın.
+                if let crop, !crop.contains(world.xyz) { continue }
 
                 var color = SIMD3<UInt8>(180, 180, 180)
                 if hasColor {
