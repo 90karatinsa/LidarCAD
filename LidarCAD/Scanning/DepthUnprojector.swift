@@ -17,7 +17,10 @@ enum DepthUnprojector {
                            pixelStride: Int = 2,
                            minConfidence: UInt8 = 2,
                            maxDepth: Float = 5.0,
-                           minDepth: Float = 0.15,
+                           // iPhone LiDAR'ı ~25 cm'den yakını güvenilir ölçemiyor;
+                           // o mesafede ARKit derinliği tahminle dolduruyor ve
+                           // bulutta üst üste binen sahte katmanlar oluşuyor.
+                           minDepth: Float = 0.25,
                            crop: CropBox? = nil) {
 
         guard let sceneDepth = frame.smoothedSceneDepth ?? frame.sceneDepth else { return }

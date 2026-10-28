@@ -10,3 +10,6 @@ build/
 
 # Test koşucusunun çıktısı
 verify
+
+# Kişisel imzalama ayarları (bundle ID, team)
+Config/Signing.local.xcconfig

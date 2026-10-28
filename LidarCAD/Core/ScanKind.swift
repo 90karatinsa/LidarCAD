@@ -72,8 +72,9 @@ enum ScanKind: String, Codable, CaseIterable, Identifiable {
             options.formats = [.obj, .stl, .dxf]
 
         case .region:
-            // Yuvanın kenarları önemli; agresif sadeleştirme onları yuvarlatır.
-            options.detail = .fine
+            // Bölge 10–50 cm; 1,2 cm hücre onu ~100 üçgene indiriyordu
+            // (gerçek taramada 18 cm'lik bölge 128 üçgen). Olduğu gibi ver.
+            options.detail = .raw
             // Girintinin "duvarı" yok, baskın yön araması yanıltıcı olur.
             options.alignToWalls = false
             options.recenterToFloor = true

@@ -1,0 +1,4 @@
+// Signing.local.xcconfig olarak kopyalayıp kendi değerlerinizi girin.
+// Team ID: Xcode > Settings > Accounts > ekibiniz.
+PRODUCT_BUNDLE_IDENTIFIER = com.adiniz.LidarCAD
+DEVELOPMENT_TEAM = XXXXXXXXXX

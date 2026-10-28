@@ -23,6 +23,8 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
         var vertices = 0
         var points = 0
         var cloudSaturated = false
+        /// Bölge modunda kamera kutuya LiDAR'ın göremeyeceği kadar yakın.
+        var tooClose = false
     }
 
     static var isSupported: Bool {
@@ -262,7 +264,7 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
             DepthUnprojector.accumulate(frame: frame, into: cloud,
                                         pixelStride: depthPixelStride, crop: workCropBox)
         }
-        pushStatsIfNeeded()
+        pushStatsIfNeeded(frame: frame)
     }
 
     func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
@@ -326,7 +328,7 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
 
     // MARK: - İstatistik
 
-    private func pushStatsIfNeeded() {
+    private func pushStatsIfNeeded(frame: ARFrame) {
         let now = CFAbsoluteTimeGetCurrent()
         guard now - lastStatsPush > 0.25 else { return }
         lastStatsPush = now
@@ -337,10 +339,20 @@ final class ScanSession: NSObject, ObservableObject, ARSessionDelegate {
             triangles += anchor.geometry.faces.count
             vertices += anchor.geometry.vertices.count
         }
+        var tooClose = false
+        // Kare delegeden geliyor; ARView'a (UIView) bu kuyruktan dokunmuyoruz.
+        if let box = workCropBox {
+            let c = frame.camera.transform.columns.3
+            // Kutunun en yakın yüzeyine değil merkezine bakıyoruz; yarım
+            // kenar kadar pay bırakıp 30 cm sınırı koyuyoruz.
+            let distance = simd_distance(SIMD3<Float>(c.x, c.y, c.z), box.center) - box.size.x * 0.5
+            tooClose = distance < 0.30
+        }
         let snapshot = Stats(triangles: triangles,
                              vertices: vertices,
                              points: cloud.count,
-                             cloudSaturated: cloud.isSaturated)
+                             cloudSaturated: cloud.isSaturated,
+                             tooClose: tooClose)
 
         DispatchQueue.main.async { [weak self] in
             guard let self, self.stats != snapshot else { return }

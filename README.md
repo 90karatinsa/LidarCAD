@@ -38,8 +38,11 @@ goes through exactly the same unit, axis and section steps as an on-device scan.
 ## Build and run
 
 1. Open `LidarCAD.xcodeproj` in Xcode.
-2. Select the **LidarCAD** target → **Signing & Capabilities**: choose your Apple ID as **Team** and change the
-   **Bundle Identifier** to something unique, e.g. `com.<yourname>.LidarCAD`.
+2. Copy `Config/Signing.local.xcconfig.example` to `Config/Signing.local.xcconfig` and enter a unique bundle identifier
+   (e.g. `com.<yourname>.LidarCAD`) and your Team ID (Xcode → Settings → Accounts). The local file is git-ignored; the
+   committed project only carries the `com.example.LidarCAD` placeholder. A bundle ID committed to a public repo can be
+   claimed by anyone who builds the project unchanged once a free account's weekly registration lapses, after which Xcode
+   refuses your own build with "app identifier is not available".
 3. Connect the iPhone, select it as the run destination, press ⌘R.
 4. On first launch, trust your developer certificate on the phone: **Settings → General → VPN & Device Management**.
 

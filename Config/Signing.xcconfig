@@ -1,0 +1,11 @@
+// İmzalama ayarları. Bu dosya repoda kalır; kendi değerlerinizi
+// Signing.local.xcconfig'e yazın (git'e girmez, örneği .example dosyasında).
+//
+// Bundle ID repoda açıkta durursa projeyi klonlayıp ID'yi değiştirmeden
+// derleyen biri, ücretsiz hesabınızın kaydı haftalık olarak düştüğü anda
+// onu kendi ekibine alabiliyor; sonra Xcode "app identifier is not
+// available" diyip sizin derlemenizi reddediyor.
+PRODUCT_BUNDLE_IDENTIFIER = com.example.LidarCAD
+DEVELOPMENT_TEAM =
+
+#include? "Signing.local.xcconfig"

@@ -58,6 +58,10 @@ struct ScanView: View {
                 .background(.ultraThinMaterial, in: Capsule())
             }
 
+            if scanner.stats.tooClose {
+                label("Çok yakın — LiDAR 25–30 cm'den yakını göremez, biraz geri çekilin",
+                      systemImage: "arrow.down.backward.and.arrow.up.forward", tint: .red)
+            }
             if let hint = scanner.trackingHint {
                 label(hint, systemImage: "exclamationmark.circle.fill", tint: .orange)
             }
